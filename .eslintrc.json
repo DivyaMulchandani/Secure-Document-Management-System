@@ -1,0 +1,28 @@
+{
+  "root": true,
+  "env": {
+    "node": true,
+    "es2022": true,
+    "jest": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "script"
+  },
+  "extends": ["eslint:recommended"],
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_|^next$" }]
+  },
+  "overrides": [
+    {
+      "files": ["apps/web/**/*.js", "apps/web/**/*.jsx"],
+      "env": { "browser": true, "node": true, "es2022": true },
+      "parserOptions": {
+        "ecmaVersion": 2022,
+        "sourceType": "module",
+        "ecmaFeatures": { "jsx": true }
+      }
+    }
+  ],
+  "ignorePatterns": ["node_modules/", ".next/", "dist/", "coverage/", "storage-data/"]
+}

@@ -1,0 +1,71 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-secure_dms}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme_dev_only}
+      POSTGRES_DB: ${DB_NAME:-secure_dms_dev}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-secure_dms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - secure-dms-net
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-secure_dms}:${DB_PASSWORD:-changeme_dev_only}@postgres:5432/${DB_NAME:-secure_dms_dev}
+      STORAGE_ROOT_PATH: /data/storage
+      PORT: 4000
+    ports:
+      - "${API_PORT:-4000}:4000"
+    volumes:
+      - object_storage:/data/storage
+    networks:
+      - secure-dms-net
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:${API_PORT:-4000}/api/v1
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:${API_PORT:-4000}/api/v1
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    networks:
+      - secure-dms-net
+
+volumes:
+  pgdata:
+  # The "encrypted object storage" — a plain volume mounted into the api
+  # container; the local-fs storage adapter reads/writes it via
+  # STORAGE_ROOT_PATH. No MinIO/S3 service in Sprint 0 (per project
+  # decision) — swap the adapter behind services/storage later without
+  # touching this compose file's shape.
+  object_storage:
+
+networks:
+  secure-dms-net:
+    driver: bridge

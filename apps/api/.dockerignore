@@ -1,0 +1,8 @@
+node_modules
+**/node_modules
+storage-data
+.env
+.env.*
+!.env.example
+*.log
+coverage

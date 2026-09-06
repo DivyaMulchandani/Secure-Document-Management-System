@@ -1,0 +1,11 @@
+{
+  "name": "@secure-dms/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared constants (roles, permissions, document types) used by the API, the web app, and DB seed migrations.",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"@secure-dms/shared: no tests yet\" && exit 0",
+    "lint": "eslint src --no-error-on-unmatched-pattern"
+  }
+}

@@ -1,0 +1,21 @@
+# Copy to docker-compose.override.yml (gitignored) for dev-only tweaks —
+# docker compose merges this automatically on top of docker-compose.yml.
+#
+# Example: bind-mount source for hot reload instead of rebuilding the
+# image on every change, and run the dev script instead of start.
+
+version: "3.9"
+
+services:
+  api:
+    build:
+      target: base
+    command: ["npm", "run", "dev", "-w", "apps/api"]
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - object_storage:/data/storage
+
+  web:
+    command: ["npm", "run", "dev", "-w", "apps/web"]
+    volumes:
+      - ./apps/web/src:/app/apps/web/src

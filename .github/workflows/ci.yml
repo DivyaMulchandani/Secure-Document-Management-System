@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: secure_dms
+          POSTGRES_PASSWORD: secure_dms_ci_pw
+          POSTGRES_DB: secure_dms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U secure_dms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://secure_dms:secure_dms_ci_pw@localhost:5432/secure_dms_test
+      JWT_ACCESS_SECRET: ci-test-access-secret-please-override
+      JWT_REFRESH_SECRET: ci-test-refresh-secret-please-override
+      ENCRYPTION_MASTER_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+      STORAGE_ROOT_PATH: /tmp/secure-dms-storage
+      PORT: 4000
+      CORS_ORIGIN: http://localhost:3000
+      LOG_LEVEL: silent
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX: 1000
+      BODY_LIMIT: 5mb
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --workspaces --if-present
+
+      - name: Run DB migrations
+        run: npm run migrate:up -w apps/api
+        env:
+          DATABASE_URL: postgresql://secure_dms:secure_dms_ci_pw@localhost:5432/secure_dms_test
+
+      - name: Run unit/integration tests
+        run: npm test -w apps/api
+
+      - name: Boot API and smoke-test the middleware chain
+        run: |
+          mkdir -p "$STORAGE_ROOT_PATH"
+          npm run start -w apps/api &
+          npx --yes wait-on -t 30000 http://localhost:4000/health
+          curl -f http://localhost:4000/health
+          curl -f http://localhost:4000/api/v1/audit/health

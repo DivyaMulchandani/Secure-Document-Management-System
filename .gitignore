@@ -1,0 +1,41 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# local object storage (dev)
+apps/api/storage-data/*
+!apps/api/storage-data/.gitkeep
+
+# docker compose local overrides
+docker-compose.override.yml
+
+# logs
+*.log
+npm-debug.log*
+
+# build outputs
+apps/web/.next/
+apps/web/out/
+apps/api/dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# local Claude Code project settings (machine-specific, not shared)
+.claude/settings.local.json
+
+# test coverage
+coverage/
+
+# misc
+*.tgz
+.eslintcache

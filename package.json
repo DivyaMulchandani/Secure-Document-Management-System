@@ -1,0 +1,24 @@
+{
+  "name": "secure-dms",
+  "private": true,
+  "description": "Secure Digital Document Management System for legal & investigation documents (SIH 2026)",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "migrate:up": "npm run migrate:up -w apps/api",
+    "migrate:down": "npm run migrate:down -w apps/api",
+    "migrate:create": "npm run migrate:create -w apps/api --",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

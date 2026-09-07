@@ -38,6 +38,12 @@ jobs:
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX: 1000
       BODY_LIMIT: 5mb
+      # No MailHog service in CI on purpose — SMTP_HOST stays unset so
+      # services/mail runs in disabled/log-only mode (proves it degrades
+      # gracefully rather than failing the invite flow / this job).
+      BOOTSTRAP_ADMIN_USERNAME: ci-admin
+      BOOTSTRAP_ADMIN_EMAIL: ci-admin@secure-dms.local
+      BOOTSTRAP_ADMIN_PASSWORD: ci-bootstrap-admin-password-please-override
 
     steps:
       - uses: actions/checkout@v4

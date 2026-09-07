@@ -37,9 +37,13 @@ packages/shared Shared constants used by both apps and by DB seed data
 1. `cp .env.example .env` and fill in real values (never commit `.env`).
 2. `docker compose up --build` — brings up Postgres, the API, and the web app.
 3. `docker compose exec api npm run migrate:up` — applies migrations and
-   seeds `roles`, `permissions`, and `document_types` (runs inside the
-   `api` container, which already has `DATABASE_URL` from `.env` via
-   `env_file`).
+   seeds `roles`, `permissions`, `document_types`, and a bootstrap
+   `ADMINISTRATOR` user (runs inside the `api` container, which already
+   has `DATABASE_URL` and `BOOTSTRAP_ADMIN_USERNAME`/`_EMAIL`/`_PASSWORD`
+   from `.env` via `env_file`). The bootstrap-admin seed migration reads
+   those three vars directly from `process.env`, not via `src/config`, so
+   they must be present in whatever shell/container actually runs
+   `migrate:up` — not just in the API's own runtime env.
 4. `curl http://localhost:4000/health` — should return `200` with
    `checks.database: "ok"`.
 5. `curl http://localhost:4000/api/v1/audit/health` — proves a request

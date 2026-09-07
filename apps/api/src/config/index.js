@@ -14,6 +14,9 @@ const REQUIRED_VARS = [
   'JWT_REFRESH_SECRET',
   'ENCRYPTION_MASTER_KEY',
   'STORAGE_ROOT_PATH',
+  'BOOTSTRAP_ADMIN_USERNAME',
+  'BOOTSTRAP_ADMIN_EMAIL',
+  'BOOTSTRAP_ADMIN_PASSWORD',
 ];
 
 function readRequired() {
@@ -62,6 +65,32 @@ const config = Object.freeze({
   }),
   log: Object.freeze({
     level: process.env.LOG_LEVEL || 'info',
+  }),
+  auth: Object.freeze({
+    lockoutThreshold: Number(process.env.AUTH_LOCKOUT_THRESHOLD || 5),
+    invitationTtl: process.env.INVITATION_TTL || '7d',
+  }),
+  mfa: Object.freeze({
+    issuer: process.env.MFA_ISSUER || 'Secure DMS',
+  }),
+  mail: Object.freeze({
+    // Empty host is the signal services/mail uses to run in disabled/log-only mode.
+    host: process.env.SMTP_HOST || '',
+    port: Number(process.env.SMTP_PORT || 1025),
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || 'Secure DMS <no-reply@secure-dms.local>',
+  }),
+  // Read by the bootstrap-admin seed migration too (directly from
+  // process.env there, not via this module — see migrations/*seed-bootstrap-admin.js).
+  bootstrapAdmin: Object.freeze({
+    username: process.env.BOOTSTRAP_ADMIN_USERNAME || '',
+    email: process.env.BOOTSTRAP_ADMIN_EMAIL || '',
+    password: process.env.BOOTSTRAP_ADMIN_PASSWORD || '',
+  }),
+  app: Object.freeze({
+    baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
   }),
 });
 

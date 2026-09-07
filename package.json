@@ -16,7 +16,8 @@
     "dev:web": "npm run dev -w apps/web"
   },
   "devDependencies": {
-    "eslint": "^8.57.0"
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.37.5"
   },
   "engines": {
     "node": ">=20"

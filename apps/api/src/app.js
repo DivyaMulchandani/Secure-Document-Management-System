@@ -2,6 +2,7 @@
 
 const express = require('express');
 const pinoHttp = require('pino-http');
+const cookieParser = require('cookie-parser');
 
 const logger = require('./logger');
 const requestId = require('./middleware/request-id');
@@ -9,7 +10,7 @@ const securityHeaders = require('./middleware/security-headers');
 const corsMiddleware = require('./middleware/cors');
 const rateLimitMiddleware = require('./middleware/rate-limit');
 const bodyLimits = require('./middleware/body-limits');
-const authStub = require('./middleware/auth');
+const authMiddleware = require('./middleware/auth');
 const rbacStub = require('./middleware/rbac');
 const notFound = require('./middleware/not-found');
 const errorHandler = require('./middleware/error-handler');
@@ -58,10 +59,18 @@ function buildApp() {
   // 7. Body parsers with size limits
   app.use(...bodyLimits);
 
-  // 8. Auth STUB (JWT verify + load user/roles lands in a later sprint)
-  app.use(authStub);
+  // 7b. Cookie parsing (refresh_token) — must run before any controller
+  // that reads req.cookies (auth/refresh, auth/logout).
+  app.use(cookieParser());
 
-  // 9. RBAC STUB (permission engine: RBAC + case scope + resource grant)
+  // 8. Auth — verifies a Bearer JWT if present, attaches req.user or
+  // null. Never rejects on its own; see middleware/auth.js.
+  app.use(authMiddleware);
+
+  // 9. RBAC STUB globally — the full case/resource-scoped permission
+  // engine (services/permissions.can()) is still future work. Route-level
+  // require-role.js guards (Sprint 1) now partially satisfy this step
+  // for simple RBAC-only checks (e.g. "must be ADMINISTRATOR").
   app.use(rbacStub);
 
   // 10. Route mounting

@@ -3,11 +3,21 @@
 const { z } = require('zod');
 
 /**
- * Sprint 0 — trivial schema for the stub health route. Real per-route
- * request schemas (body/params/query) land alongside real endpoints in
- * later sprints. Validation always runs after auth/rbac, before the
- * controller (wired per-route in auth.routes.js, not globally).
+ * Trivial schema for the stub health route (kept from Sprint 0).
  */
 const healthQuerySchema = z.object({}).strict();
 
-module.exports = { healthQuerySchema };
+const loginBodySchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+  otp: z
+    .string()
+    .regex(/^\d{6}$/, 'OTP must be a 6-digit code.')
+    .optional(),
+});
+
+const mfaVerifyBodySchema = z.object({
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit code.'),
+});
+
+module.exports = { healthQuerySchema, loginBodySchema, mfaVerifyBodySchema };

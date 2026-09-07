@@ -1,20 +1,27 @@
 'use strict';
 
+const jwtService = require('../services/jwt');
+
 /**
- * STUB — Sprint 0.
+ * Global, step 8 in the chain — verifies a Bearer JWT if present and
+ * attaches `req.user`, but ALWAYS calls next(): it never rejects a
+ * request on its own, since public routes (/auth/login,
+ * /users/activate/:token, /health, ...) must stay reachable with no
+ * token at all. Route-level guards (require-auth.js, require-role.js)
+ * are what actually reject unauthenticated/unauthorized requests.
  *
- * This is the slot in the middleware chain where JWT verification and
- * user/role loading belong (architecture: "verify JWT · load user +
- * roles"). Real logic lands once the `auth` module (src/modules/auth)
- * has a working login/token pipeline in a later sprint.
- *
- * For now this is a documented passthrough: it never rejects a request
- * and never sets req.user to anything meaningful. Do NOT rely on
- * req.user existing yet.
+ * Note: role claims are snapshotted into the JWT at issuance time — an
+ * admin changing a user's roles takes effect for that user only after
+ * their next /auth/refresh (bounded by the short access-token TTL).
+ * Accepted tradeoff, not a bug.
  */
-function authStub(req, res, next) {
-  req.user = null; // TODO(auth-sprint): replace with verified JWT payload
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization;
+  const token = header && header.startsWith('Bearer ') ? header.slice(7) : null;
+  const payload = token ? jwtService.verifyAccessToken(token) : null;
+
+  req.user = payload ? { id: payload.sub, username: payload.username, roles: payload.roles } : null;
   next();
 }
 
-module.exports = authStub;
+module.exports = authMiddleware;

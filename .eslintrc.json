@@ -21,6 +21,10 @@
         "ecmaVersion": 2022,
         "sourceType": "module",
         "ecmaFeatures": { "jsx": true }
+      },
+      "plugins": ["react"],
+      "rules": {
+        "react/jsx-uses-vars": "warn"
       }
     }
   ],

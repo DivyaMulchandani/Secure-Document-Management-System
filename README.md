@@ -19,8 +19,14 @@ canonical reference once it's added to the repo.
 - **Storage**: local encrypted filesystem folder in dev (behind a
   swappable storage-adapter interface — S3-compatible later without
   touching business logic)
+- **Auth**: JWT access tokens + opaque httpOnly-cookie refresh tokens,
+  scrypt password hashing, TOTP MFA (`otplib`)
+- **Mail**: `nodemailer` → MailHog in dev (invitation emails)
+- **Audit**: hash-chained `audit_events` ledger + `security_events`
+  (feeds the admin security dashboard, future sprint)
 - **Crypto (future sprints)**: AES-256-GCM (documents), SHA-256
-  (integrity), RSA-SHA256 (signatures), scrypt (passwords)
+  (integrity), RSA-SHA256 (signatures) — password hashing (scrypt) is
+  already real, see Auth above
 - **Shared constants**: `packages/shared` (roles, permissions,
   document types)
 
@@ -62,16 +68,22 @@ packages/shared Shared constants used by both apps and by DB seed data
 
 ## Tests
 
-`npm test` runs each workspace's test suite (Jest + Supertest for the
-API: health check, full middleware-chain smoke test, storage adapter
-round-trip + path-traversal guard).
+`npm test` runs each workspace's test suite. The API's Jest/Supertest
+suite includes real integration tests (`auth.test.js`, `users.test.js`)
+that run against a real, migrated Postgres — `DATABASE_URL` must point
+at a database that already had `migrate:up` run against it (including
+the bootstrap-admin seed), same as CI's own `migrate:up` → `npm test`
+sequence.
 
 ## Status
 
-**Sprint 0 — Foundations & scaffolding.** Module skeletons exist for the
-P0 domains (`auth`, `users`, `cases`, `documents`, `permissions`,
-`audit`) with stub routes only — no business logic, no real crypto, no
-JWT verification yet. This sprint proves the plumbing: a request reaches
-a stub endpoint through the full middleware chain, migrations seed base
-reference data, and CI is green. The architecture dossier (see above)
-describes what gets built on top of this foundation in later sprints.
+**Sprint 1 — Auth, identity, RBAC, users.** `auth` and `users` are real:
+an admin invites a user (real email via MailHog, or the activation
+link/token returned inline outside production), the invitee activates,
+logs in (scrypt + JWT, optional TOTP MFA), and is locked out after
+`AUTH_LOCKOUT_THRESHOLD` consecutive failures — with a real
+`security_events` row and a verifiable `audit_events` hash chain to
+show for it. `cases`, `documents`, and `permissions` (the full
+case/resource-scoped permission engine — this sprint only implements
+RBAC-role checks) are still Sprint-0 stubs. The architecture dossier
+(see above) describes what gets built on top of this foundation next.

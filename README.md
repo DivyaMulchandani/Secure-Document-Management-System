@@ -30,9 +30,8 @@ canonical reference once it's added to the repo.
   (`resource_permissions`) — see `services/permissions`
 - **Documents**: AES-256-GCM encryption + SHA-256 integrity, both real
   (`services/crypto`) — every access decrypts, re-hashes, and compares
-  against the recorded hash before serving bytes. RSA-SHA256 signatures
-  are still a future sprint. Uploads via `multer` (memory storage,
-  configurable size/MIME limits).
+  against the recorded hash before serving bytes. Uploads via `multer`
+  (memory storage, configurable size/MIME limits).
 - **Evidence & chain of custody**: `evidence` + `evidence_artifacts` +
   a tamper-evident, per-evidence-item hash-chained `custody_events`
   ledger (`services/custody-ledger`, independent of the global audit
@@ -54,6 +53,17 @@ canonical reference once it's added to the repo.
   document's public verification code, no account needed
   (`GET /verification/public/:code`), logging every check to
   `verification_records`.
+- **Sharing & approval**: `document_shares` is a document-focused front
+  end for the SAME `resource_permissions` primitive the three-layer
+  engine's layer 3 already enforced since Sprint 2 — sharing invents no
+  second access-control mechanism, so time-limited grants auto-expire
+  for free (once `expires_at` passes, the existing engine simply stops
+  matching, no scheduler needed) and every existing document
+  view/download route enforces a share exactly like it enforces any
+  other grant. `approval_requests`/`approval_steps` drive a sequential,
+  named-approver-chain review (draft → review → approve/reject/revise)
+  that finally activates the `documents.status` values (`UNDER_REVIEW`,
+  `APPROVED`, `FINAL`) that had sat unused in the schema since Sprint 3.
 - **Shared constants**: `packages/shared` (roles, permissions,
   document types)
 
@@ -100,46 +110,61 @@ packages/shared Shared constants used by both apps and by DB seed data
 ## Tests
 
 `npm test` runs each workspace's test suite. The API's Jest/Supertest
-suite includes real integration tests (`auth.test.js`, `users.test.js`,
-`cases.test.js`, `audit.test.js`, `documents.test.js`) that run against
-a real, migrated Postgres — `DATABASE_URL` must point at a database
-that already had `migrate:up` run against it (including the
-bootstrap-admin seed), same as CI's own `migrate:up` → `npm test`
-sequence. `documents.test.js` also reads raw bytes off the local
-storage disk directly (not through the API) to prove encryption is
-real rather than trusting the API's own claims about it.
+suite (14 files, 135 tests as of Sprint 6 — one per module, matching
+`apps/api/src/modules/`) runs as real integration tests against a real,
+migrated Postgres — `DATABASE_URL` must point at a database that
+already had `migrate:up` run against it (including the bootstrap-admin
+seed), same as CI's own `migrate:up` → `npm test` sequence.
+`documents.test.js` also reads raw bytes off the local storage disk
+directly (not through the API) to prove encryption is real rather than
+trusting the API's own claims about it. `jest.config.js`'s
+`testTimeout` is bumped to 15s — several suites' `beforeAll` hooks do
+multiple deliberately-expensive scrypt password hashes (OWASP params)
+plus HTTP round trips, and the stock 5s default occasionally isn't
+enough under the CPU contention of many suites running back to back
+against a containerized Postgres.
 
 ## Status
 
-**Sprint 5 — Signatures & verification portal.** `signatures` and
-`verification` are real: RSA-2048/SHA-256 signing bound to a specific
-document VERSION's hash (`document_signatures.signed_hash`, frozen at
-sign time — later edits to the document don't retroactively change
-what a past signature attests to), a self-service signing key per user
-(`user_keys`, one ACTIVE key at a time, rotation-ready, private key
-never stored or returned in the clear), and a signing workflow that
-doubles as the "pending-signature queue": sign your own document
-directly, or request someone else's signature and it shows up in their
-queue (`GET /signatures/queue`) until they sign or decline. The
-verification portal runs four independent checks — re-hash the stored
-content, cryptographically verify the RSA signature, recompute the
-*entire* global audit hash chain, and confirm the signed version is
-still current — producing `AUTHENTIC`, `TAMPERED`, or (a signature
-that's genuine but the document has since moved on) `SUPERSEDED`. The
-literal "done when" bar: an untampered signed document verifies
-`AUTHENTIC` on all four checks, both internally
-(`GET /verification/documents/:id`) and through the public,
-unauthenticated external-verifier path
-(`GET /verification/public/:code`) — and a tampered one is flagged
-`TAMPERED` through both paths too, every check logged to
-`verification_records`. `PERMISSIONS.SIGN` picked up the same
-latent-gap fix `VERIFY` got in Sprint 4: it's now granted to every
-case role that the Role Capability Matrix allows, closing a gap where
-no case-scoped document could ever actually be signed. Frontend: a
-signing screen and verification-check panel on the document detail
-page, a dedicated pending-signature queue page with self-service key
-generation, and a public verification portal (`/verify`,
-`/verify/[code]`) that works without logging in. `sharing` and
-`approval` (the remaining P1 modules) are still ahead. The architecture
-dossier (see above) describes what gets built on top of this
-foundation next.
+**Sprint 6 — Secure sharing & approval workflow. All P1 features are now
+in place — this is a complete, defensible demo end to end.**
+`sharing` and `approval` are real. Sharing reuses the exact
+`resource_permissions` primitive the three-layer permission engine's
+layer 3 has enforced since Sprint 2 — `document_shares` is just a
+document-shaped record of who/why on top of it, so a share is auto-
+enforced by every existing document route (view/download) with zero new
+access-control code, and auto-revoke is free: once `expires_at` passes,
+the engine simply stops matching, no scheduler needed. The literal
+"done when" bar's first half: a share is grantable to ANY active user
+(deliberately not restricted to case members — that's the point of
+sharing vs. case membership), and manipulating its underlying grant's
+`expires_at` into the past (simulating 72h elapsing) immediately and
+correctly denies further access — proven directly against the API in
+`sharing.test.js`.
+
+Approval is a sequential, named-approver chain (`approval_requests` +
+ordered `approval_steps`) that finally drives the `documents.status`
+values (`UNDER_REVIEW`, `APPROVED`, `FINAL`) that had sat unused in the
+schema since Sprint 3: submit → each approver gets their turn in order
+(an earlier approver's turn can't be skipped) → APPROVED on the last
+step moves the document to `APPROVED`; a REJECTED or
+REVISION_REQUESTED decision instead halts the chain immediately and
+reverts the document to `DRAFT`. The literal "done when" bar's second
+half: an approval chain drives a document to `APPROVED`, then Sprint
+5's signing flow takes it to `SIGNED`, then a new finalize step
+(`POST /approval/documents/:id/finalize`) closes it out at `FINAL` —
+verified end to end against the live Docker stack. Both
+`PERMISSIONS.SIGN`'s case-role wiring (Sprint 5) and `PERMISSIONS.SHARE`
+(already correctly wired since Sprint 2/3) are reused as-is; no new
+permission-engine gaps were found this sprint. A small, deliberately
+minimal `GET /users/lookup` endpoint (any authenticated user, username-
+only) was added to make sharing/approval's "pick a recipient outside
+your case" pickers usable without needing admin-only user listing.
+
+Frontend: a share dialog (recipient picker, scope, expiry) and an
+approval panel (build an ordered approver chain, decide your turn
+inline) on the document detail page, plus two new standalone pages —
+an approval inbox (`/approval/inbox`) and a "shared with me" list
+(`/sharing/mine`) — both reachable from the top nav. 135 tests passing,
+lint clean. The architecture dossier (see above) describes what
+remains as post-MVP scope.

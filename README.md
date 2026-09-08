@@ -28,9 +28,11 @@ canonical reference once it's added to the repo.
 - **Access control**: three-layer engine — RBAC role ceiling, case
   scope (`case_members`), and expiring per-resource grants
   (`resource_permissions`) — see `services/permissions`
-- **Crypto (future sprints)**: AES-256-GCM (documents), SHA-256
-  (integrity), RSA-SHA256 (signatures) — password hashing (scrypt) is
-  already real, see Auth above
+- **Documents**: AES-256-GCM encryption + SHA-256 integrity, both real
+  (`services/crypto`) — every access decrypts, re-hashes, and compares
+  against the recorded hash before serving bytes. RSA-SHA256 signatures
+  are still a future sprint. Uploads via `multer` (memory storage,
+  configurable size/MIME limits).
 - **Shared constants**: `packages/shared` (roles, permissions,
   document types)
 
@@ -74,27 +76,30 @@ packages/shared Shared constants used by both apps and by DB seed data
 
 `npm test` runs each workspace's test suite. The API's Jest/Supertest
 suite includes real integration tests (`auth.test.js`, `users.test.js`,
-`cases.test.js`, `audit.test.js`) that run against a real, migrated
-Postgres — `DATABASE_URL` must point at a database that already had
-`migrate:up` run against it (including the bootstrap-admin seed), same
-as CI's own `migrate:up` → `npm test` sequence.
+`cases.test.js`, `audit.test.js`, `documents.test.js`) that run against
+a real, migrated Postgres — `DATABASE_URL` must point at a database
+that already had `migrate:up` run against it (including the
+bootstrap-admin seed), same as CI's own `migrate:up` → `npm test`
+sequence. `documents.test.js` also reads raw bytes off the local
+storage disk directly (not through the API) to prove encryption is
+real rather than trusting the API's own claims about it.
 
 ## Status
 
-**Sprint 2 — Cases, permission engine, audit ledger.** `cases`,
-`permissions`, and `audit` are real: a case gets a year-scoped
-sequential number, and access to it is decided by a genuine three-layer
-check — RBAC role ceiling AND (case membership with a per-case_role
-capability, OR an explicit expiring `resource_permissions` grant).
-There is deliberately no administrator bypass on case content: an
-admin who isn't a case member is denied exactly like anyone else,
-though admins/auditors still see every case in the oversight listing.
-Case status transitions are validated against the full state machine
-(reopening a closed case is administrator-only). The audit ledger's
-`audit_events`/`security_events` from Sprint 1 now have a real read
-side too: filtered listing (role-scoped), `/audit/verify` (recomputes
-every hash and reports exactly where a chain breaks), and CSV export.
-`documents` and `evidence` (the remaining P0/P1 resource types the
-permission engine already has slots for) are still Sprint-0 stubs. The
-architecture dossier (see above) describes what gets built on top of
-this foundation next.
+**Sprint 3 — Documents core.** `documents` is real: upload encrypts
+(AES-256-GCM) and hashes (SHA-256) before a single byte reaches disk,
+every download decrypts and re-verifies the hash (a mismatch blocks
+the download with 409, flips `integrity_status` to `MODIFIED`, and
+raises a real `security_events(INTEGRITY_FAILURE)` row), and a
+correction always creates a new forward version — nothing is ever
+silently overwritten, and "restoring" an old version creates yet
+another new version rather than rewinding history. The Sprint-2
+permission engine now covers `DOCUMENT` as a real resource type
+(case-scoped access resolves through the document's owning case) in
+addition to `CASE`. Also closed a gap flagged after Sprint 2: every
+`requirePermission` denial (not just documents) now writes a real
+`security_events(UNAUTH_ACCESS)` row, matching the architecture's
+"deny is logged too" principle. `evidence`, `signatures`, `sharing`,
+`verification`, and `approval` (P1 — everything that builds on
+documents existing) are still ahead. The architecture dossier (see
+above) describes what gets built on top of this foundation next.

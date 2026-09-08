@@ -16,6 +16,14 @@ async function getHealth(req, res, next) {
   }
 }
 
+async function lookup(req, res, next) {
+  try {
+    res.status(200).json(await service.lookupUsers(req.query.q));
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function invite(req, res, next) {
   try {
     const result = await service.inviteUser({ invitedByUserId: req.user.id, ...req.body });
@@ -107,6 +115,7 @@ async function createDepartment(req, res, next) {
 
 module.exports = {
   getHealth,
+  lookup,
   invite,
   previewActivation,
   activate,

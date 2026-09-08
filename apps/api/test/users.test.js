@@ -222,4 +222,29 @@ describe('users module', () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
   });
+
+  describe('GET /users/lookup — any authenticated user may search usernames (feature 15 recipient picker)', () => {
+    it('requires authentication', async () => {
+      const res = await request(app).get('/api/v1/users/lookup?q=admin');
+      expect(res.status).toBe(401);
+    });
+
+    it('finds the bootstrap admin by a partial username match, without leaking email/roles/status', async () => {
+      const res = await request(app)
+        .get('/api/v1/users/lookup?q=admin')
+        .set('Authorization', `Bearer ${adminAccessToken}`);
+      expect(res.status).toBe(200);
+      const match = res.body.find((u) => u.username === process.env.BOOTSTRAP_ADMIN_USERNAME);
+      expect(match).toBeTruthy();
+      expect(match.email).toBeUndefined();
+      expect(match.status).toBeUndefined();
+    });
+
+    it('rejects an empty query', async () => {
+      const res = await request(app)
+        .get('/api/v1/users/lookup?q=')
+        .set('Authorization', `Bearer ${adminAccessToken}`);
+      expect(res.status).toBe(400);
+    });
+  });
 });

@@ -7,13 +7,16 @@ import { useAuth } from '../../../../../lib/auth-context';
 import { apiJson, apiBlob } from '../../../../../lib/api-client';
 import AppShell from '../../../../../components/AppShell';
 import AuthLayout from '../../../../../components/AuthLayout';
+import UserPicker from '../../../../../components/UserPicker';
 import {
   Alert,
+  ApprovalStatusBadge,
   Button,
   DocumentStatusBadge,
   EmptyState,
   Field,
   IntegrityBadge,
+  ShareStatusBadge,
   SignatureStatusBadge,
   VerificationResultBadge,
 } from '../../../../../components/ui';
@@ -50,6 +53,22 @@ export default function DocumentViewerPage() {
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyError, setVerifyError] = useState(null);
 
+  const [shares, setShares] = useState([]);
+  const [showShareForm, setShowShareForm] = useState(false);
+  const [shareRecipient, setShareRecipient] = useState(null);
+  const [shareForm, setShareForm] = useState({ permission: 'VIEW', expiresInHours: 72, reason: '' });
+  const [shareError, setShareError] = useState(null);
+  const [shareBusy, setShareBusy] = useState(false);
+
+  const [approvalRequests, setApprovalRequests] = useState([]);
+  const [showApprovalForm, setShowApprovalForm] = useState(false);
+  const [approvers, setApprovers] = useState([]);
+  const [pendingApprover, setPendingApprover] = useState(null);
+  const [approvalError, setApprovalError] = useState(null);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [decideComments, setDecideComments] = useState({});
+  const [finalizeError, setFinalizeError] = useState(null);
+
   const refresh = useCallback(async () => {
     try {
       const [d, v, c] = await Promise.all([
@@ -62,12 +81,16 @@ export default function DocumentViewerPage() {
       setComments(c);
       setError(null);
 
-      const [sigs, mems] = await Promise.all([
+      const [sigs, mems, shareList, approvals] = await Promise.all([
         apiJson(`/signatures/documents/${documentId}`),
         apiJson(`/cases/${d.case_id}/members`),
+        apiJson(`/sharing/documents/${documentId}/shares`).catch(() => []),
+        apiJson(`/approval/documents/${documentId}/requests`).catch(() => []),
       ]);
       setSignatures(sigs);
       setMembers(mems);
+      setShares(shareList);
+      setApprovalRequests(approvals);
     } catch (err) {
       setError(err.message || 'Failed to load document.');
     }
@@ -189,6 +212,111 @@ export default function DocumentViewerPage() {
     }
   }
 
+  async function handleCreateShare(e) {
+    e.preventDefault();
+    setShareError(null);
+    if (!shareRecipient) {
+      setShareError('Choose who to share with first.');
+      return;
+    }
+    setShareBusy(true);
+    try {
+      await apiJson(`/sharing/documents/${documentId}/shares`, {
+        method: 'POST',
+        body: JSON.stringify({
+          toUserId: shareRecipient.id,
+          permission: shareForm.permission,
+          expiresInHours: Number(shareForm.expiresInHours),
+          reason: shareForm.reason || undefined,
+        }),
+      });
+      setShareRecipient(null);
+      setShareForm({ permission: 'VIEW', expiresInHours: 72, reason: '' });
+      setShowShareForm(false);
+      refresh();
+    } catch (err) {
+      setShareError(err.message || 'Sharing failed.');
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function handleRevokeShare(shareId) {
+    setShareError(null);
+    setShareBusy(true);
+    try {
+      await apiJson(`/sharing/documents/${documentId}/shares/${shareId}/revoke`, { method: 'POST' });
+      refresh();
+    } catch (err) {
+      setShareError(err.message || 'Revoking the share failed.');
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  function addApprover() {
+    if (!pendingApprover) return;
+    if (approvers.some((a) => a.id === pendingApprover.id)) {
+      setPendingApprover(null);
+      return;
+    }
+    setApprovers([...approvers, pendingApprover]);
+    setPendingApprover(null);
+  }
+
+  function removeApprover(id) {
+    setApprovers(approvers.filter((a) => a.id !== id));
+  }
+
+  async function handleSubmitApproval(e) {
+    e.preventDefault();
+    setApprovalError(null);
+    if (approvers.length === 0) {
+      setApprovalError('Add at least one approver first.');
+      return;
+    }
+    setApprovalBusy(true);
+    try {
+      await apiJson(`/approval/documents/${documentId}/requests`, {
+        method: 'POST',
+        body: JSON.stringify({ approverIds: approvers.map((a) => a.id) }),
+      });
+      setApprovers([]);
+      setShowApprovalForm(false);
+      refresh();
+    } catch (err) {
+      setApprovalError(err.message || 'Submitting for approval failed.');
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
+
+  async function handleDecideStep(stepId, decision) {
+    setApprovalError(null);
+    setApprovalBusy(true);
+    try {
+      await apiJson(`/approval/steps/${stepId}/decide`, {
+        method: 'POST',
+        body: JSON.stringify({ decision, comments: decideComments[stepId] || undefined }),
+      });
+      refresh();
+    } catch (err) {
+      setApprovalError(err.message || 'Recording the decision failed.');
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
+
+  async function handleFinalize() {
+    setFinalizeError(null);
+    try {
+      await apiJson(`/approval/documents/${documentId}/finalize`, { method: 'POST' });
+      refresh();
+    } catch (err) {
+      setFinalizeError(err.message || 'Finalizing failed.');
+    }
+  }
+
   if (loading) return <div className="skeleton-page">Loading…</div>;
   if (!user) {
     return (
@@ -210,6 +338,14 @@ export default function DocumentViewerPage() {
     );
   }
   if (!doc) return <div className="skeleton-page">Loading document…</div>;
+
+  const latestRequest = approvalRequests[0];
+  const myActionableStep =
+    latestRequest && latestRequest.status === 'PENDING'
+      ? latestRequest.steps.find(
+          (s) => s.approver_id === user.id && s.step_order === latestRequest.current_step && s.status === 'PENDING',
+        )
+      : null;
 
   return (
     <AppShell>
@@ -293,6 +429,120 @@ export default function DocumentViewerPage() {
               </table>
             </div>
           )}
+        </div>
+
+        <div className="section">
+          <div className="card-header">
+            <h2>Approval workflow</h2>
+            <div className="row" style={{ gap: 8 }}>
+              {doc.status === 'SIGNED' && (
+                <Button size="sm" variant="secondary" onClick={handleFinalize}>
+                  Finalize
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={showApprovalForm ? 'outline' : 'secondary'}
+                onClick={() => setShowApprovalForm((v) => !v)}
+              >
+                {showApprovalForm ? 'Cancel' : 'Submit for approval'}
+              </Button>
+            </div>
+          </div>
+          <Alert>{finalizeError}</Alert>
+
+          {showApprovalForm && (
+            <form onSubmit={handleSubmitApproval} className="card card-tint" style={{ marginBottom: 16 }}>
+              <Field label="Approvers, in order">
+                <div className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {approvers.map((a, i) => (
+                    <span key={a.id} className="row" style={{ gap: 4 }}>
+                      <span className="badge badge-primary">
+                        {i + 1}. {a.username}
+                      </span>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeApprover(a.id)}>
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  <UserPicker value={pendingApprover} onChange={setPendingApprover} excludeUserId={user.id} />
+                  <Button type="button" size="sm" variant="outline" onClick={addApprover}>
+                    + Add
+                  </Button>
+                </div>
+              </Field>
+              <Button type="submit" disabled={approvalBusy} style={{ marginTop: 12 }}>
+                {approvalBusy ? 'Submitting…' : 'Submit chain for review'}
+              </Button>
+            </form>
+          )}
+
+          {!latestRequest ? (
+            <EmptyState>No approval requests yet.</EmptyState>
+          ) : (
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <span className="text-sm muted">Requested by {latestRequest.requested_by_username}</span>
+                <ApprovalStatusBadge status={latestRequest.status} />
+              </div>
+              <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0' }}>
+                {latestRequest.steps.map((s) => (
+                  <li key={s.id} className="text-sm" style={{ padding: '6px 0', borderTop: '1px solid var(--color-border)' }}>
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <span>
+                        {s.step_order + 1}. {s.approver_username}
+                      </span>
+                      <ApprovalStatusBadge status={s.status} />
+                    </div>
+                    {s.comments && <div className="muted" style={{ marginTop: 2 }}>"{s.comments}"</div>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {myActionableStep && (
+            <div className="card card-tint">
+              <p className="text-sm" style={{ marginTop: 0 }}>
+                It's your turn to review this document.
+              </p>
+              <textarea
+                className="input"
+                style={{ width: '100%', minHeight: 60, resize: 'vertical' }}
+                placeholder="Comments (optional)"
+                value={decideComments[myActionableStep.id] || ''}
+                onChange={(e) => setDecideComments({ ...decideComments, [myActionableStep.id]: e.target.value })}
+              />
+              <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <Button
+                  size="sm"
+                  disabled={approvalBusy}
+                  onClick={() => handleDecideStep(myActionableStep.id, 'APPROVED')}
+                >
+                  Approve
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={approvalBusy}
+                  onClick={() => handleDecideStep(myActionableStep.id, 'REVISION_REQUESTED')}
+                >
+                  Request revision
+                </Button>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={approvalBusy}
+                  onClick={() => handleDecideStep(myActionableStep.id, 'REJECTED')}
+                >
+                  Reject
+                </Button>
+              </div>
+            </div>
+          )}
+          <Alert>{approvalError}</Alert>
         </div>
 
         <div className="section">
@@ -441,6 +691,97 @@ export default function DocumentViewerPage() {
               </div>
             )}
           </div>
+        </div>
+
+        <div className="section">
+          <div className="card-header">
+            <h2>Sharing</h2>
+            <Button
+              size="sm"
+              variant={showShareForm ? 'outline' : 'secondary'}
+              onClick={() => setShowShareForm((v) => !v)}
+            >
+              {showShareForm ? 'Cancel' : '+ Share'}
+            </Button>
+          </div>
+
+          {showShareForm && (
+            <form onSubmit={handleCreateShare} className="form-grid card card-tint" style={{ marginBottom: 16 }}>
+              <Field label="Share with">
+                <UserPicker value={shareRecipient} onChange={setShareRecipient} excludeUserId={user.id} />
+              </Field>
+              <Field label="Permission">
+                <select
+                  className="input"
+                  value={shareForm.permission}
+                  onChange={(e) => setShareForm({ ...shareForm, permission: e.target.value })}
+                >
+                  <option value="VIEW">View only</option>
+                  <option value="DOWNLOAD">View + download</option>
+                </select>
+              </Field>
+              <Field label="Expires in (hours)">
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={720}
+                  value={shareForm.expiresInHours}
+                  onChange={(e) => setShareForm({ ...shareForm, expiresInHours: e.target.value })}
+                />
+              </Field>
+              <Field label="Reason (optional)">
+                <input
+                  className="input"
+                  value={shareForm.reason}
+                  onChange={(e) => setShareForm({ ...shareForm, reason: e.target.value })}
+                  placeholder="e.g. Court request"
+                />
+              </Field>
+              <Button type="submit" disabled={shareBusy}>
+                {shareBusy ? 'Sharing…' : 'Grant access'}
+              </Button>
+            </form>
+          )}
+
+          <Alert>{shareError}</Alert>
+
+          {shares.length === 0 ? (
+            <EmptyState>Not shared with anyone.</EmptyState>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Shared with</th>
+                    <th>Permission</th>
+                    <th>Expires</th>
+                    <th>Status</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {shares.map((s) => (
+                    <tr key={s.id}>
+                      <td>{s.shared_with_username}</td>
+                      <td className="muted">{s.permission_code}</td>
+                      <td className="muted">{new Date(s.expires_at).toLocaleString()}</td>
+                      <td>
+                        <ShareStatusBadge status={s.status} />
+                      </td>
+                      <td>
+                        {s.status === 'ACTIVE' && (
+                          <Button size="sm" variant="danger" disabled={shareBusy} onClick={() => handleRevokeShare(s.id)}>
+                            Revoke
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
         <div className="section">

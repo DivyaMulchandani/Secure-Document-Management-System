@@ -11,6 +11,8 @@ const healthQuerySchema = z.object({}).strict();
 const uuidSchema = z.string().uuid();
 const passwordSchema = z.string().min(8, 'Password must be at least 8 characters.');
 
+const lookupQuerySchema = z.object({ q: z.string().min(1).max(64) });
+
 const inviteBodySchema = z.object({
   username: z.string().min(3).max(64),
   email: z.string().email(),
@@ -50,6 +52,7 @@ const createDepartmentBodySchema = z.object({
 
 module.exports = {
   healthQuerySchema,
+  lookupQuerySchema,
   inviteBodySchema,
   activateParamsSchema,
   activateBodySchema,

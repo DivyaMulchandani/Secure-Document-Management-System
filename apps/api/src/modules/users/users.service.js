@@ -20,6 +20,12 @@ async function health() {
   return { module: result.module, status: 'ok' };
 }
 
+/** Any authenticated user may search usernames — see users.repository.searchActiveUsers's doc comment for why this is deliberately minimal/unrestricted. */
+async function lookupUsers(query) {
+  if (!query || query.trim().length === 0) return [];
+  return repository.searchActiveUsers(query.trim());
+}
+
 // --- invite / activate (docs/architecture "Feature flow · User invitation & activation") ---
 
 /**
@@ -211,6 +217,7 @@ function toPublicUser(user) {
 
 module.exports = {
   health,
+  lookupUsers,
   inviteUser,
   previewInvitation,
   activateAccount,

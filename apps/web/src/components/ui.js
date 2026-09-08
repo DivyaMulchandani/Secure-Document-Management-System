@@ -79,6 +79,19 @@ const VERIFICATION_RESULT_TONE = {
   NOT_FOUND: 'neutral',
 };
 
+const SHARE_STATUS_TONE = {
+  ACTIVE: 'success',
+  EXPIRED: 'neutral',
+  REVOKED: 'danger',
+};
+
+const APPROVAL_STATUS_TONE = {
+  PENDING: 'warning',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+  REVISION_REQUESTED: 'warning',
+};
+
 /** @param {{tone?: string, children: import('react').ReactNode}} props */
 export function Badge({ tone = 'neutral', children }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
@@ -122,6 +135,14 @@ export function SignatureStatusBadge({ status }) {
 
 export function VerificationResultBadge({ status }) {
   return <Badge tone={VERIFICATION_RESULT_TONE[status] || 'neutral'}>{status}</Badge>;
+}
+
+export function ShareStatusBadge({ status }) {
+  return <Badge tone={SHARE_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
+}
+
+export function ApprovalStatusBadge({ status }) {
+  return <Badge tone={APPROVAL_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
 }
 
 /** @param {{tone?: 'danger'|'success'|'info', children: import('react').ReactNode}} props */

@@ -39,6 +39,8 @@ export default function AppShell({ children }) {
             <nav className="row" style={{ gap: 4 }}>
               {navLink('/cases', 'Cases')}
               {navLink('/signatures/queue', 'Signature queue')}
+              {navLink('/approval/inbox', 'Approval inbox')}
+              {navLink('/sharing/mine', 'Shared with me')}
               {isAdmin && navLink('/admin/users', 'Users')}
             </nav>
           )}

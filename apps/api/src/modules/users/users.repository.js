@@ -50,6 +50,27 @@ async function findUserById(id, executor = pool) {
   return rows[0] || null;
 }
 
+/**
+ * A deliberately minimal, any-authenticated-user search — powers
+ * sharing.js's/approval.js's "pick a recipient" pickers (Sprint 6),
+ * which need to find users OUTSIDE the current case's membership list
+ * (that's the whole point of sharing) without exposing the full
+ * admin-only GET /users listing. Usernames aren't sensitive; this never
+ * returns anything else (no email, no roles, no status beyond the
+ * ACTIVE filter).
+ */
+async function searchActiveUsers(query, limit = 10, executor = pool) {
+  const { rows } = await executor.query(
+    `SELECT id, username, full_name
+     FROM users
+     WHERE status = 'ACTIVE' AND username ILIKE $1
+     ORDER BY username
+     LIMIT $2`,
+    [`%${query}%`, limit],
+  );
+  return rows;
+}
+
 async function listUsers({ status, departmentId, page = 1, pageSize = 20 } = {}, executor = pool) {
   const conditions = [];
   const params = [];
@@ -222,6 +243,7 @@ module.exports = {
   findUserByUsername,
   findUserByEmail,
   findUserById,
+  searchActiveUsers,
   listUsers,
   setUserStatus,
   resetFailedLoginCount,

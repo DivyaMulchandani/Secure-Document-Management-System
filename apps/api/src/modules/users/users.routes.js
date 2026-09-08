@@ -19,6 +19,8 @@ const router = express.Router();
 
 router.get('/health', controller.getHealth);
 
+router.get('/lookup', requireAuth, validate({ query: schemas.lookupQuerySchema }), controller.lookup);
+
 router.get('/departments', requireAuth, controller.listDepartments);
 router.post(
   '/departments',

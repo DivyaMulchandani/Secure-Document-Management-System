@@ -11,12 +11,10 @@ const auditRoutes = require('../modules/audit/audit.routes');
 const evidenceRoutes = require('../modules/evidence/evidence.routes');
 const signaturesRoutes = require('../modules/signatures/signatures.routes');
 const verificationRoutes = require('../modules/verification/verification.routes');
+const sharingRoutes = require('../modules/sharing/sharing.routes');
+const approvalRoutes = require('../modules/approval/approval.routes');
 
-/**
- * Aggregates every module router under /api/v1. Mounted in app.js.
- * Remaining P1 modules (sharing, approval) are added here unchanged
- * when those sprints start.
- */
+/** Aggregates every module router under /api/v1. Mounted in app.js. */
 const router = express.Router();
 
 router.use('/auth', authRoutes);
@@ -28,5 +26,7 @@ router.use('/audit', auditRoutes);
 router.use('/evidence', evidenceRoutes);
 router.use('/signatures', signaturesRoutes);
 router.use('/verification', verificationRoutes);
+router.use('/sharing', sharingRoutes);
+router.use('/approval', approvalRoutes);
 
 module.exports = router;

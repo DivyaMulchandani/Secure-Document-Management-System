@@ -95,6 +95,13 @@ const ROLE_ACTION_CEILING = Object.freeze({
 // routes to actually gate on PERMISSIONS.VERIFY — documents' integrity
 // re-check happens as a DOWNLOAD side effect, never as its own guarded
 // action, so this gap was latent until this sprint.
+//
+// PERMISSIONS.SIGN mirrors ROLE_ACTION_CEILING's own SIGN grants
+// (INVESTIGATOR/FORENSIC_OFFICER/PROSECUTOR/ADMINISTRATOR, not AUDITOR)
+// — same latent-gap shape as VERIFY above, found by signatures.routes.js
+// (Sprint 5), the first routes to gate on PERMISSIONS.SIGN. VIEWER is
+// deliberately excluded (read-only case role; matrix has no viewer-signs
+// capability).
 const CASE_ROLE_ACTIONS = Object.freeze({
   [CASE_ROLES.OWNER]: [
     PERMISSIONS.VIEW,
@@ -103,6 +110,7 @@ const CASE_ROLE_ACTIONS = Object.freeze({
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.SHARE,
     PERMISSIONS.COMMENT,
+    PERMISSIONS.SIGN,
     PERMISSIONS.VERIFY,
     PERMISSIONS.ARCHIVE,
     PERMISSIONS.DELETE,
@@ -114,6 +122,7 @@ const CASE_ROLE_ACTIONS = Object.freeze({
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.SHARE,
     PERMISSIONS.COMMENT,
+    PERMISSIONS.SIGN,
     PERMISSIONS.VERIFY,
   ],
   // Matrix: forensic officers may upload, but only forensic-report-type
@@ -128,12 +137,14 @@ const CASE_ROLE_ACTIONS = Object.freeze({
     PERMISSIONS.UPLOAD,
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.COMMENT,
+    PERMISSIONS.SIGN,
     PERMISSIONS.VERIFY,
   ],
   [CASE_ROLES.PROSECUTOR]: [
     PERMISSIONS.VIEW,
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.COMMENT,
+    PERMISSIONS.SIGN,
     PERMISSIONS.VERIFY,
   ],
   [CASE_ROLES.VIEWER]: [PERMISSIONS.VIEW, PERMISSIONS.DOWNLOAD, PERMISSIONS.VERIFY],

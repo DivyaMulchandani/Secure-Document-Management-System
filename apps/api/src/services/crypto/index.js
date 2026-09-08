@@ -1,10 +1,11 @@
 'use strict';
 
 /**
- * `signRsa`/`verifyRsa` are still stubs (RSA-SHA256 document signatures
- * land in a later sprint). `hashPassword`/`verifyPassword` (scrypt,
- * Sprint 1) and `encrypt`/`decrypt`/`hashSha256` (AES-256-GCM / SHA-256,
- * Sprint 3 — document encryption + integrity) are real.
+ * `hashPassword`/`verifyPassword` (scrypt, Sprint 1),
+ * `encrypt`/`decrypt`/`hashSha256` (AES-256-GCM / SHA-256, Sprint 3 —
+ * document encryption + integrity), and `generateRsaKeyPair`/
+ * `signRsa`/`verifyRsa` (RSA-2048/SHA-256, Sprint 5 — document
+ * signatures) are all real.
  *
  * Deliberately has NO dependency on ../../config anywhere in this
  * module — scrypt params are fixed constants, and encrypt/decrypt take
@@ -158,18 +159,73 @@ function decrypt(envelope, { masterKeySecret }) {
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 }
 
-function notImplemented(name) {
-  return () => {
-    throw new Error(`crypto.${name} is not implemented yet (Sprint 0 stub)`);
-  };
+// --- RSA-SHA256 document signatures (feature 12) -----------------------
+
+const RSA_MODULUS_LENGTH = 2048;
+
+/**
+ * @returns {{publicKeyPem: string, privateKeyPem: string}} a fresh
+ *   RSA-2048 keypair — SPKI/PEM public key (safe to store in the clear
+ *   and hand out for external verification), PKCS8/PEM private key
+ *   (never stored in the clear — callers must run it through encrypt()
+ *   with the master key before persisting, exactly like document
+ *   content).
+ */
+function generateRsaKeyPair() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+    modulusLength: RSA_MODULUS_LENGTH,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+  return { publicKeyPem: publicKey, privateKeyPem: privateKey };
+}
+
+/**
+ * Signs a hex SHA-256 digest (a document_version's content hash) with
+ * an RSA private key. Signs the hash STRING's bytes, not the original
+ * file content — the signature is always over a fixed-size, already-
+ * verified digest, never the (potentially large) file itself.
+ *
+ * @param {string} hashHex
+ * @param {string} privateKeyPem PKCS8/PEM
+ * @returns {string} base64 signature
+ */
+function signRsa(hashHex, privateKeyPem) {
+  const signature = crypto.sign('RSA-SHA256', Buffer.from(hashHex, 'utf8'), privateKeyPem);
+  return signature.toString('base64');
+}
+
+/**
+ * @param {string} hashHex the same digest that was signed
+ * @param {string} signatureBase64
+ * @param {string} publicKeyPem SPKI/PEM
+ * @returns {boolean} never throws — a malformed key/signature is
+ *   treated as "does not verify", the same never-throw contract as
+ *   verifyPassword, so a corrupt row can never turn a verification
+ *   request into a 500.
+ */
+function verifyRsa(hashHex, signatureBase64, publicKeyPem) {
+  try {
+    return crypto.verify(
+      'RSA-SHA256',
+      Buffer.from(hashHex, 'utf8'),
+      publicKeyPem,
+      Buffer.from(signatureBase64, 'base64'),
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[crypto] verifyRsa: could not verify signature:', err.message);
+    return false;
+  }
 }
 
 module.exports = {
   encrypt,
   decrypt,
   hashSha256,
-  signRsa: notImplemented('signRsa'), // RSA-SHA256
-  verifyRsa: notImplemented('verifyRsa'),
+  generateRsaKeyPair,
+  signRsa,
+  verifyRsa,
   hashPassword,
   verifyPassword,
 };

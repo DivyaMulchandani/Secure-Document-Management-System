@@ -38,6 +38,7 @@ export default function AppShell({ children }) {
           {user && (
             <nav className="row" style={{ gap: 4 }}>
               {navLink('/cases', 'Cases')}
+              {navLink('/signatures/queue', 'Signature queue')}
               {isAdmin && navLink('/admin/users', 'Users')}
             </nav>
           )}

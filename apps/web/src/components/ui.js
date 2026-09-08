@@ -65,6 +65,20 @@ const CUSTODY_STATUS_TONE = {
   REJECTED: 'danger',
 };
 
+const SIGNATURE_STATUS_TONE = {
+  PENDING: 'warning',
+  SIGNED: 'success',
+  DECLINED: 'danger',
+};
+
+const VERIFICATION_RESULT_TONE = {
+  AUTHENTIC: 'success',
+  TAMPERED: 'danger',
+  SUPERSEDED: 'warning',
+  UNSIGNED: 'neutral',
+  NOT_FOUND: 'neutral',
+};
+
 /** @param {{tone?: string, children: import('react').ReactNode}} props */
 export function Badge({ tone = 'neutral', children }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
@@ -100,6 +114,14 @@ export function EvidenceStatusBadge({ status }) {
 
 export function CustodyStatusBadge({ status }) {
   return <Badge tone={CUSTODY_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
+}
+
+export function SignatureStatusBadge({ status }) {
+  return <Badge tone={SIGNATURE_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
+}
+
+export function VerificationResultBadge({ status }) {
+  return <Badge tone={VERIFICATION_RESULT_TONE[status] || 'neutral'}>{status}</Badge>;
 }
 
 /** @param {{tone?: 'danger'|'success'|'info', children: import('react').ReactNode}} props */

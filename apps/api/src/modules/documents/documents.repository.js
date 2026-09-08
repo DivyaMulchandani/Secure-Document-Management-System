@@ -162,6 +162,14 @@ async function updateVersionIntegrityStatus({ id, status }, executor = pool) {
   await executor.query('UPDATE document_versions SET integrity_status = $1 WHERE id = $2', [status, id]);
 }
 
+// Flipped by signatures.service.js once a signature actually completes
+// (feature 12) — owned here, not duplicated in the signatures module,
+// per the auth/users.repository.js precedent for cross-module writes to
+// another module's tables.
+async function markVersionSigned(id, executor = pool) {
+  await executor.query('UPDATE document_versions SET is_signed = true WHERE id = $1', [id]);
+}
+
 /**
  * Duplicate-detection (feature 4): other versions anywhere in the same
  * case sharing this exact content hash, excluding the document currently
@@ -215,6 +223,7 @@ module.exports = {
   findLatestVersionForDocument,
   listVersionsForDocument,
   updateVersionIntegrityStatus,
+  markVersionSigned,
   findVersionsByHashInCase,
   insertComment,
   listCommentsForDocument,

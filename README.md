@@ -41,6 +41,19 @@ canonical reference once it's added to the repo.
   integrity check on receipt blocks the transfer, keeps the item
   `IN_TRANSIT`, and raises a `security_events(CUSTODY_VIOLATION)` row.
   Every custody action also writes a global `audit_events` row.
+- **Signatures & verification**: RSA-2048/SHA-256 signing
+  (`services/crypto.generateRsaKeyPair`/`signRsa`/`verifyRsa`), a
+  private key never leaving the server unencrypted (AES-256-GCM
+  envelope, same master key as document content), and a
+  self-sign-or-request-and-queue workflow (`document_signatures`
+  doubles as the pending-signature queue). The verification portal runs
+  four independent checks — content hash, RSA signature validity, the
+  global audit ledger's integrity, and whether the signed version is
+  still current — both for authenticated users
+  (`GET /verification/documents/:id`) and for anyone holding a
+  document's public verification code, no account needed
+  (`GET /verification/public/:code`), logging every check to
+  `verification_records`.
 - **Shared constants**: `packages/shared` (roles, permissions,
   document types)
 
@@ -94,32 +107,35 @@ real rather than trusting the API's own claims about it.
 
 ## Status
 
-**Sprint 4 — Evidence vault & chain of custody.** `evidence` is real:
-register → seal → verify → transfer → accept/reject, enforcing the
-full evidence state machine (`ALLOWED_TRANSITIONS` in
-`evidence.service.js`) and re-verifying every artifact's SHA-256 hash
-on every hand-off — not just at upload. Custody is tracked in its own
-tamper-evident, hash-chained `custody_events` ledger
-(`services/custody-ledger`), scoped per evidence item and independent
-of the global `audit_events` chain, with an advisory-lock namespace
-that serializes writers per-item rather than globally. The literal
-"done when" bar: a two-party transfer (`POST /transfers` →
-`POST /transfers/:id/accept`) re-verifies integrity before completing,
-and on success writes both a `custody_events(RECEIVE, COMPLETED)` row
-and an `audit_events(EVIDENCE_TRANSFER, SUCCESS)` row — an integrity
-failure on receipt instead blocks the transfer, raises a
-`security_events(CUSTODY_VIOLATION)` row, and leaves the item
-`IN_TRANSIT`. Archiving is deliberately decoupled from physical
-custody (case-closure action, not a hand-off) so it isn't blocked by
-whichever role happens to be holding the item last. The permission
-engine's `CASE_ROLE_ACTIONS` also picked up a latent-gap fix this
-sprint: `VERIFY` is now granted to every case role (the matrix's
-"verify integrity/custody: all roles" row was never actually wired to
-a guarded route until evidence's `/verify` and `/custody/verify`).
-Frontend: evidence registration, an artifact list with re-verified
-downloads, a chain-of-custody timeline, and transfer request/accept/
-reject UI, all wired into the case workspace and a new evidence detail
-page — same design system as the rest of the app. `signatures`,
-`sharing`, `verification`, and `approval` (the remaining P1 modules)
-are still ahead. The architecture dossier (see above) describes what
-gets built on top of this foundation next.
+**Sprint 5 — Signatures & verification portal.** `signatures` and
+`verification` are real: RSA-2048/SHA-256 signing bound to a specific
+document VERSION's hash (`document_signatures.signed_hash`, frozen at
+sign time — later edits to the document don't retroactively change
+what a past signature attests to), a self-service signing key per user
+(`user_keys`, one ACTIVE key at a time, rotation-ready, private key
+never stored or returned in the clear), and a signing workflow that
+doubles as the "pending-signature queue": sign your own document
+directly, or request someone else's signature and it shows up in their
+queue (`GET /signatures/queue`) until they sign or decline. The
+verification portal runs four independent checks — re-hash the stored
+content, cryptographically verify the RSA signature, recompute the
+*entire* global audit hash chain, and confirm the signed version is
+still current — producing `AUTHENTIC`, `TAMPERED`, or (a signature
+that's genuine but the document has since moved on) `SUPERSEDED`. The
+literal "done when" bar: an untampered signed document verifies
+`AUTHENTIC` on all four checks, both internally
+(`GET /verification/documents/:id`) and through the public,
+unauthenticated external-verifier path
+(`GET /verification/public/:code`) — and a tampered one is flagged
+`TAMPERED` through both paths too, every check logged to
+`verification_records`. `PERMISSIONS.SIGN` picked up the same
+latent-gap fix `VERIFY` got in Sprint 4: it's now granted to every
+case role that the Role Capability Matrix allows, closing a gap where
+no case-scoped document could ever actually be signed. Frontend: a
+signing screen and verification-check panel on the document detail
+page, a dedicated pending-signature queue page with self-service key
+generation, and a public verification portal (`/verify`,
+`/verify/[code]`) that works without logging in. `sharing` and
+`approval` (the remaining P1 modules) are still ahead. The architecture
+dossier (see above) describes what gets built on top of this
+foundation next.

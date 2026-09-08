@@ -22,8 +22,12 @@ canonical reference once it's added to the repo.
 - **Auth**: JWT access tokens + opaque httpOnly-cookie refresh tokens,
   scrypt password hashing, TOTP MFA (`otplib`)
 - **Mail**: `nodemailer` → MailHog in dev (invitation emails)
-- **Audit**: hash-chained `audit_events` ledger + `security_events`
-  (feeds the admin security dashboard, future sprint)
+- **Audit**: hash-chained `audit_events` ledger (append + verify +
+  filtered listing + CSV export are real) + `security_events` (feeds
+  the admin security dashboard, future sprint)
+- **Access control**: three-layer engine — RBAC role ceiling, case
+  scope (`case_members`), and expiring per-resource grants
+  (`resource_permissions`) — see `services/permissions`
 - **Crypto (future sprints)**: AES-256-GCM (documents), SHA-256
   (integrity), RSA-SHA256 (signatures) — password hashing (scrypt) is
   already real, see Auth above
@@ -69,21 +73,28 @@ packages/shared Shared constants used by both apps and by DB seed data
 ## Tests
 
 `npm test` runs each workspace's test suite. The API's Jest/Supertest
-suite includes real integration tests (`auth.test.js`, `users.test.js`)
-that run against a real, migrated Postgres — `DATABASE_URL` must point
-at a database that already had `migrate:up` run against it (including
-the bootstrap-admin seed), same as CI's own `migrate:up` → `npm test`
-sequence.
+suite includes real integration tests (`auth.test.js`, `users.test.js`,
+`cases.test.js`, `audit.test.js`) that run against a real, migrated
+Postgres — `DATABASE_URL` must point at a database that already had
+`migrate:up` run against it (including the bootstrap-admin seed), same
+as CI's own `migrate:up` → `npm test` sequence.
 
 ## Status
 
-**Sprint 1 — Auth, identity, RBAC, users.** `auth` and `users` are real:
-an admin invites a user (real email via MailHog, or the activation
-link/token returned inline outside production), the invitee activates,
-logs in (scrypt + JWT, optional TOTP MFA), and is locked out after
-`AUTH_LOCKOUT_THRESHOLD` consecutive failures — with a real
-`security_events` row and a verifiable `audit_events` hash chain to
-show for it. `cases`, `documents`, and `permissions` (the full
-case/resource-scoped permission engine — this sprint only implements
-RBAC-role checks) are still Sprint-0 stubs. The architecture dossier
-(see above) describes what gets built on top of this foundation next.
+**Sprint 2 — Cases, permission engine, audit ledger.** `cases`,
+`permissions`, and `audit` are real: a case gets a year-scoped
+sequential number, and access to it is decided by a genuine three-layer
+check — RBAC role ceiling AND (case membership with a per-case_role
+capability, OR an explicit expiring `resource_permissions` grant).
+There is deliberately no administrator bypass on case content: an
+admin who isn't a case member is denied exactly like anyone else,
+though admins/auditors still see every case in the oversight listing.
+Case status transitions are validated against the full state machine
+(reopening a closed case is administrator-only). The audit ledger's
+`audit_events`/`security_events` from Sprint 1 now have a real read
+side too: filtered listing (role-scoped), `/audit/verify` (recomputes
+every hash and reports exactly where a chain breaks), and CSV export.
+`documents` and `evidence` (the remaining P0/P1 resource types the
+permission engine already has slots for) are still Sprint-0 stubs. The
+architecture dossier (see above) describes what gets built on top of
+this foundation next.

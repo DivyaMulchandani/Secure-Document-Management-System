@@ -2,12 +2,18 @@
 
 const { z } = require('zod');
 
-/**
- * Sprint 0 — trivial schema for the stub health route. Real per-route
- * request schemas (body/params/query) land alongside real endpoints in
- * later sprints. Validation always runs after auth/rbac, before the
- * controller (wired per-route in audit.routes.js, not globally).
- */
 const healthQuerySchema = z.object({}).strict();
 
-module.exports = { healthQuerySchema };
+const listEventsQuerySchema = z.object({
+  actorUserId: z.string().uuid().optional(),
+  action: z.string().max(64).optional(),
+  resourceType: z.string().max(64).optional(),
+  resourceId: z.string().uuid().optional(),
+  result: z.enum(['SUCCESS', 'FAILURE']).optional(),
+  dateFrom: z.string().datetime().optional(),
+  dateTo: z.string().datetime().optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(500).optional(),
+});
+
+module.exports = { healthQuerySchema, listEventsQuerySchema };

@@ -33,6 +33,37 @@ function sortKeysDeep(value) {
 }
 
 /**
+ * The exact canonicalization + hashing procedure used when a row is
+ * first written — exported so audit.service.js's chain-verification
+ * endpoint (feature 19 — "recompute every event_hash") can recompute
+ * the SAME hash from a stored row and compare, without duplicating this
+ * logic (and risking it drifting out of sync with appendEvent below).
+ *
+ * @param {object} event same shape as appendEvent's `event`, PLUS the
+ *   `previousHash` and `createdAt` (Date) that were actually stored.
+ * @returns {string} sha256 hex digest
+ */
+function computeEventHash(event) {
+  const canonical = sortKeysDeep({
+    actorUserId: event.actorUserId ?? null,
+    action: event.action,
+    resourceType: event.resourceType,
+    resourceId: event.resourceId ?? null,
+    caseId: event.caseId ?? null,
+    result: event.result,
+    ipAddress: event.ipAddress ?? null,
+    sessionId: event.sessionId ?? null,
+    device: event.device ?? null,
+    metadata: event.metadata ?? {},
+    previousHash: event.previousHash ?? null,
+    createdAt:
+      event.createdAt instanceof Date ? event.createdAt.toISOString() : event.createdAt,
+  });
+  const canonicalJson = JSON.stringify(canonical);
+  return crypto.createHash('sha256').update(canonicalJson).digest('hex');
+}
+
+/**
  * Appends one hash-chained event. MUST be called with the same `client`
  * (from db/pool.js's withTransaction) that performed the domain write
  * this event describes — the golden path requires both to commit
@@ -60,22 +91,7 @@ async function appendEvent(client, event) {
   // here, or the stored hash wouldn't match what's actually stored.
   const createdAt = new Date();
 
-  const canonical = sortKeysDeep({
-    actorUserId: event.actorUserId ?? null,
-    action: event.action,
-    resourceType: event.resourceType,
-    resourceId: event.resourceId ?? null,
-    caseId: event.caseId ?? null,
-    result: event.result,
-    ipAddress: event.ipAddress ?? null,
-    sessionId: event.sessionId ?? null,
-    device: event.device ?? null,
-    metadata: event.metadata ?? {},
-    previousHash,
-    createdAt: createdAt.toISOString(),
-  });
-  const canonicalJson = JSON.stringify(canonical);
-  const eventHash = crypto.createHash('sha256').update(canonicalJson).digest('hex');
+  const eventHash = computeEventHash({ ...event, previousHash, createdAt });
 
   const {
     rows: [inserted],
@@ -105,4 +121,4 @@ async function appendEvent(client, event) {
   return { id: inserted.id, eventHash: inserted.event_hash };
 }
 
-module.exports = { appendEvent, LEDGER_LOCK_KEY };
+module.exports = { appendEvent, computeEventHash, LEDGER_LOCK_KEY };

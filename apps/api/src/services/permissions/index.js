@@ -1,21 +1,164 @@
 'use strict';
 
+const { pool } = require('../../db/pool');
+const { ROLES, PERMISSIONS, CASE_ROLES } = require('@secure-dms/shared');
+
 /**
- * STUB — Sprint 0.
+ * Real implementation of the three-layer access model (docs/architecture
+ * — "Access model" / "Fine-Grained Access Control"). This is what
+ * middleware/require-permission.js calls on every guarded route.
  *
- * Real implementation evaluates RBAC role + case scope + resource grant
- * together into an allow/deny decision (see docs/architecture — "Access
- * model"). This is the function the rbac.js middleware will eventually
- * call. Defaults to deny so nothing can accidentally rely on this stub
- * granting access.
+ * Layer 1 — RBAC role ceiling: a static map of "what can this GLOBAL
+ * role ever do, at most" (see ROLE_ACTION_CEILING below). This is the
+ * architecture's baseline: e.g. an Auditor can never EDIT, no matter
+ * what case they're a member of.
  *
- * @param {object|null} user
- * @param {string} action
- * @param {{type: string, id: string}} resource
+ * Layer 2 — Case scope: case_members says which cases are in reach at
+ * all; case_role further narrows what a member can do ON that case
+ * (see CASE_ROLE_ACTIONS below). Deliberately NO administrator bypass —
+ * an Administrator who isn't a case member has no more case-content
+ * access than anyone else who isn't (matches the architecture's Role
+ * Capability Matrix, where Administrator's ceiling on case/document
+ * content is "scoped/conditional", not "full" — full/unconditional only
+ * applies to org-management actions, which are gated separately via
+ * middleware/require-role.js, not this engine).
+ *
+ * Layer 3 — Resource grant: resource_permissions is an explicit,
+ * independent exception on ONE resource (e.g. a 72h VIEW grant), and is
+ * checked regardless of case membership.
+ *
+ * can() allows when: (role ceiling permits the action) AND
+ *   (case-scope permits it OR an explicit resource grant permits it).
+ *
+ * NOTE: the exact case_role -> allowed-actions mapping and the
+ * role -> ceiling mapping are judgment calls extrapolated from the
+ * architecture's general Role Capability Matrix (which doesn't give a
+ * resource-type-by-resource-type breakdown) — documented inline, easy
+ * to retune as later sprints add document/evidence resource types.
+ */
+
+const ROLE_ACTION_CEILING = Object.freeze({
+  [ROLES.ADMINISTRATOR]: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.EDIT,
+    PERMISSIONS.UPLOAD,
+    PERMISSIONS.DOWNLOAD,
+    PERMISSIONS.SHARE,
+    PERMISSIONS.COMMENT,
+    PERMISSIONS.SIGN,
+    PERMISSIONS.VERIFY,
+    PERMISSIONS.DELETE,
+    PERMISSIONS.ARCHIVE,
+  ],
+  [ROLES.INVESTIGATOR]: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.EDIT,
+    PERMISSIONS.UPLOAD,
+    PERMISSIONS.DOWNLOAD,
+    PERMISSIONS.SHARE,
+    PERMISSIONS.COMMENT,
+    PERMISSIONS.SIGN,
+    PERMISSIONS.VERIFY,
+    PERMISSIONS.DELETE,
+    PERMISSIONS.ARCHIVE,
+  ],
+  [ROLES.FORENSIC_OFFICER]: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.DOWNLOAD,
+    PERMISSIONS.COMMENT,
+    PERMISSIONS.SIGN,
+    PERMISSIONS.VERIFY,
+  ],
+  [ROLES.PROSECUTOR]: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.DOWNLOAD,
+    PERMISSIONS.COMMENT,
+    PERMISSIONS.SIGN,
+    PERMISSIONS.VERIFY,
+  ],
+  // Least-privilege, read-only oversight — matrix: "Auditor may VERIFY, never EDIT".
+  [ROLES.AUDITOR]: [PERMISSIONS.VIEW, PERMISSIONS.VERIFY, PERMISSIONS.DOWNLOAD],
+});
+
+const CASE_ROLE_ACTIONS = Object.freeze({
+  [CASE_ROLES.OWNER]: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.EDIT,
+    PERMISSIONS.SHARE,
+    PERMISSIONS.COMMENT,
+    PERMISSIONS.ARCHIVE,
+    PERMISSIONS.DELETE,
+  ],
+  [CASE_ROLES.INVESTIGATOR]: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.EDIT,
+    PERMISSIONS.SHARE,
+    PERMISSIONS.COMMENT,
+  ],
+  [CASE_ROLES.FORENSIC]: [PERMISSIONS.VIEW, PERMISSIONS.COMMENT],
+  [CASE_ROLES.PROSECUTOR]: [PERMISSIONS.VIEW, PERMISSIONS.COMMENT],
+  [CASE_ROLES.VIEWER]: [PERMISSIONS.VIEW],
+});
+
+/**
+ * @param {{id: string, roles: string[]}|null} user
+ * @param {string} action a permissions.code value, e.g. PERMISSIONS.EDIT
+ * @param {{type: 'CASE'|'DOCUMENT'|'EVIDENCE'|'REPORT', id: string}} resource
  * @returns {Promise<boolean>}
  */
-async function can(/* user, action, resource */) {
-  return false;
+async function can(user, action, resource) {
+  if (!user || !resource || !resource.id) return false;
+
+  const roleAllows = (user.roles || []).some((role) =>
+    (ROLE_ACTION_CEILING[role] || []).includes(action),
+  );
+  if (!roleAllows) return false;
+
+  if (resource.type === 'CASE') {
+    const caseScopeAllows = await checkCaseScope(user.id, resource.id, action);
+    if (caseScopeAllows) return true;
+  }
+
+  return checkResourceGrant(user.id, resource.type, resource.id, action);
 }
 
-module.exports = { can };
+async function checkCaseScope(userId, caseId, action) {
+  const { rows } = await pool.query(
+    `SELECT case_role FROM case_members
+     WHERE case_id = $1 AND user_id = $2 AND revoked_at IS NULL
+     LIMIT 1`,
+    [caseId, userId],
+  );
+  if (rows.length === 0) return false;
+  return (CASE_ROLE_ACTIONS[rows[0].case_role] || []).includes(action);
+}
+
+async function checkResourceGrant(userId, resourceType, resourceId, action) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM resource_permissions rp
+     JOIN permissions p ON p.id = rp.permission_id
+     WHERE rp.resource_type = $1 AND rp.resource_id = $2 AND rp.user_id = $3
+       AND p.code = $4
+       AND rp.revoked_at IS NULL
+       AND (rp.expires_at IS NULL OR rp.expires_at > now())
+     LIMIT 1`,
+    [resourceType, resourceId, userId, action],
+  );
+  return rows.length > 0;
+}
+
+/**
+ * True if the given user is an active member of the case (any role).
+ * Used by the cases module for membership-existence checks that aren't
+ * tied to one specific permission (e.g. "is this user on the case at
+ * all" for listing).
+ */
+async function isCaseMember(userId, caseId) {
+  const { rows } = await pool.query(
+    'SELECT 1 FROM case_members WHERE case_id = $1 AND user_id = $2 AND revoked_at IS NULL LIMIT 1',
+    [caseId, userId],
+  );
+  return rows.length > 0;
+}
+
+module.exports = { can, isCaseMember, ROLE_ACTION_CEILING, CASE_ROLE_ACTIONS };

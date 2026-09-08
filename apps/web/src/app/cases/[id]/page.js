@@ -15,6 +15,7 @@ import {
   CaseStatusBadge,
   DocumentStatusBadge,
   EmptyState,
+  EvidenceStatusBadge,
   Field,
   IntegrityBadge,
   PriorityBadge,
@@ -37,6 +38,7 @@ export default function CaseWorkspacePage() {
   const [documents, setDocuments] = useState([]);
   const [docTypes, setDocTypes] = useState([]);
   const [members, setMembers] = useState([]);
+  const [evidenceItems, setEvidenceItems] = useState([]);
 
   const [uploadForm, setUploadForm] = useState({ title: '', description: '', documentTypeId: '' });
   const [uploadFile, setUploadFile] = useState(null);
@@ -49,16 +51,24 @@ export default function CaseWorkspacePage() {
   const [memberError, setMemberError] = useState(null);
   const [showMemberForm, setShowMemberForm] = useState(false);
 
+  const [evidenceForm, setEvidenceForm] = useState({ title: '', description: '', category: '', location: '' });
+  const [evidenceFile, setEvidenceFile] = useState(null);
+  const [evidenceError, setEvidenceError] = useState(null);
+  const [registering, setRegistering] = useState(false);
+  const [showEvidenceForm, setShowEvidenceForm] = useState(false);
+
   const refresh = useCallback(async () => {
     try {
-      const [c, docs, members_] = await Promise.all([
+      const [c, docs, members_, evidence] = await Promise.all([
         apiJson(`/cases/${caseId}`),
         apiJson(`/documents?caseId=${caseId}`),
         apiJson(`/cases/${caseId}/members`),
+        apiJson(`/evidence?caseId=${caseId}`),
       ]);
       setCaseData(c);
       setDocuments(docs);
       setMembers(members_);
+      setEvidenceItems(evidence);
       setCaseError(null);
     } catch (err) {
       setCaseError(err.message || 'Failed to load case.');
@@ -108,6 +118,38 @@ export default function CaseWorkspacePage() {
       setUploadError(err.message || 'Upload failed.');
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleRegisterEvidence(e) {
+    e.preventDefault();
+    setEvidenceError(null);
+    if (!evidenceFile) {
+      setEvidenceError('Choose a file first.');
+      return;
+    }
+    setRegistering(true);
+    try {
+      const body = new FormData();
+      body.append('caseId', caseId);
+      body.append('title', evidenceForm.title);
+      if (evidenceForm.description) body.append('description', evidenceForm.description);
+      if (evidenceForm.category) body.append('category', evidenceForm.category);
+      if (evidenceForm.location) body.append('location', evidenceForm.location);
+      body.append('file', evidenceFile);
+
+      const res = await apiFetch('/evidence', { method: 'POST', body });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || 'Registration failed.');
+
+      setEvidenceForm({ title: '', description: '', category: '', location: '' });
+      setEvidenceFile(null);
+      setShowEvidenceForm(false);
+      refresh();
+    } catch (err) {
+      setEvidenceError(err.message || 'Registration failed.');
+    } finally {
+      setRegistering(false);
     }
   }
 
@@ -268,6 +310,97 @@ export default function CaseWorkspacePage() {
                       <td>
                         <DocumentStatusBadge status={d.status} />
                       </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="section">
+          <div className="card-header">
+            <h2>Evidence vault</h2>
+            <Button
+              size="sm"
+              variant={showEvidenceForm ? 'outline' : 'secondary'}
+              onClick={() => setShowEvidenceForm((v) => !v)}
+            >
+              {showEvidenceForm ? 'Cancel' : '+ Register evidence'}
+            </Button>
+          </div>
+
+          {showEvidenceForm && (
+            <div className="card card-tint" style={{ marginBottom: 16 }}>
+              <form onSubmit={handleRegisterEvidence} className="form-grid">
+                <Field label="Title">
+                  <input
+                    className="input"
+                    value={evidenceForm.title}
+                    onChange={(e) => setEvidenceForm({ ...evidenceForm, title: e.target.value })}
+                    required
+                  />
+                </Field>
+                <Field label="Category">
+                  <input
+                    className="input"
+                    value={evidenceForm.category}
+                    onChange={(e) => setEvidenceForm({ ...evidenceForm, category: e.target.value })}
+                    placeholder="e.g. Digital, Physical, Document"
+                  />
+                </Field>
+                <Field label="Current location">
+                  <input
+                    className="input"
+                    value={evidenceForm.location}
+                    onChange={(e) => setEvidenceForm({ ...evidenceForm, location: e.target.value })}
+                    placeholder="e.g. Evidence Locker A-3"
+                  />
+                </Field>
+                <Field label="File">
+                  <input
+                    className="input"
+                    type="file"
+                    onChange={(e) => setEvidenceFile(e.target.files?.[0] || null)}
+                    required
+                  />
+                </Field>
+                <Button type="submit" disabled={registering}>
+                  {registering ? 'Encrypting & registering…' : 'Register evidence'}
+                </Button>
+              </form>
+              <Alert>{evidenceError}</Alert>
+            </div>
+          )}
+
+          {evidenceItems.length === 0 ? (
+            <EmptyState>No evidence registered on this case yet.</EmptyState>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Evidence #</th>
+                    <th>Title</th>
+                    <th>Category</th>
+                    <th>Status</th>
+                    <th>Custodian</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {evidenceItems.map((ev) => (
+                    <tr key={ev.id}>
+                      <td className="muted">{ev.evidence_number}</td>
+                      <td>
+                        <Link href={`/cases/${caseId}/evidence/${ev.id}`}>
+                          <strong>{ev.title}</strong>
+                        </Link>
+                      </td>
+                      <td className="muted">{ev.category || '—'}</td>
+                      <td>
+                        <EvidenceStatusBadge status={ev.status} />
+                      </td>
+                      <td>{ev.custodian_username}</td>
                     </tr>
                   ))}
                 </tbody>

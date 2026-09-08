@@ -69,6 +69,7 @@ const ROLE_ACTION_CEILING = Object.freeze({
   ],
   [ROLES.FORENSIC_OFFICER]: [
     PERMISSIONS.VIEW,
+    PERMISSIONS.EDIT, // matrix: "Register/transfer evidence ⬤ (receive/analyse)" — seal/verify/analyze/return are EDIT-class evidence-state changes
     PERMISSIONS.UPLOAD, // conditional in the matrix ("forensic reports" only) — not enforced by document_type this sprint, see CASE_ROLE_ACTIONS.FORENSIC note
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.COMMENT,
@@ -86,6 +87,14 @@ const ROLE_ACTION_CEILING = Object.freeze({
   [ROLES.AUDITOR]: [PERMISSIONS.VIEW, PERMISSIONS.VERIFY, PERMISSIONS.DOWNLOAD],
 });
 
+// PERMISSIONS.VERIFY is deliberately in EVERY row below (not just the
+// global ROLE_ACTION_CEILING) — the matrix's "Verify integrity /
+// signatures / custody" row is unconditionally full (⬤) for ALL five
+// roles, so case-scope must never be the layer that blocks it. Found by
+// evidence.routes.js's /verify and /custody/verify endpoints, the first
+// routes to actually gate on PERMISSIONS.VERIFY — documents' integrity
+// re-check happens as a DOWNLOAD side effect, never as its own guarded
+// action, so this gap was latent until this sprint.
 const CASE_ROLE_ACTIONS = Object.freeze({
   [CASE_ROLES.OWNER]: [
     PERMISSIONS.VIEW,
@@ -94,6 +103,7 @@ const CASE_ROLE_ACTIONS = Object.freeze({
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.SHARE,
     PERMISSIONS.COMMENT,
+    PERMISSIONS.VERIFY,
     PERMISSIONS.ARCHIVE,
     PERMISSIONS.DELETE,
   ],
@@ -104,6 +114,7 @@ const CASE_ROLE_ACTIONS = Object.freeze({
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.SHARE,
     PERMISSIONS.COMMENT,
+    PERMISSIONS.VERIFY,
   ],
   // Matrix: forensic officers may upload, but only forensic-report-type
   // documents — this sprint doesn't refine by document_type_id, so
@@ -111,9 +122,21 @@ const CASE_ROLE_ACTIONS = Object.freeze({
   // "only when document_type_id = FORENSIC_REPORT" is a reasonable
   // later refinement, not a correctness bug (it's strictly more
   // permissive than the matrix, never less).
-  [CASE_ROLES.FORENSIC]: [PERMISSIONS.VIEW, PERMISSIONS.UPLOAD, PERMISSIONS.DOWNLOAD, PERMISSIONS.COMMENT],
-  [CASE_ROLES.PROSECUTOR]: [PERMISSIONS.VIEW, PERMISSIONS.DOWNLOAD, PERMISSIONS.COMMENT],
-  [CASE_ROLES.VIEWER]: [PERMISSIONS.VIEW, PERMISSIONS.DOWNLOAD],
+  [CASE_ROLES.FORENSIC]: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.EDIT, // register/seal/verify/transfer/analyze/return evidence — see ROLE_ACTION_CEILING.FORENSIC_OFFICER note
+    PERMISSIONS.UPLOAD,
+    PERMISSIONS.DOWNLOAD,
+    PERMISSIONS.COMMENT,
+    PERMISSIONS.VERIFY,
+  ],
+  [CASE_ROLES.PROSECUTOR]: [
+    PERMISSIONS.VIEW,
+    PERMISSIONS.DOWNLOAD,
+    PERMISSIONS.COMMENT,
+    PERMISSIONS.VERIFY,
+  ],
+  [CASE_ROLES.VIEWER]: [PERMISSIONS.VIEW, PERMISSIONS.DOWNLOAD, PERMISSIONS.VERIFY],
 });
 
 /**
@@ -144,15 +167,19 @@ async function can(user, action, resource) {
  * @param {string} resourceId
  * @returns {Promise<string|null>} the case_id that "owns" this
  *   resource's case-scope, or null if the resource type isn't
- *   case-scoped (or a resolver for it doesn't exist yet — EVIDENCE/
- *   REPORT fall through to null until their modules land, which is
- *   safe: it just means case-scope contributes nothing and only an
- *   explicit resource_permissions grant can allow access to them).
+ *   case-scoped (or a resolver for it doesn't exist yet — REPORT falls
+ *   through to null until its module lands, which is safe: it just
+ *   means case-scope contributes nothing and only an explicit
+ *   resource_permissions grant can allow access to it).
  */
 async function resolveOwningCaseId(resourceType, resourceId) {
   if (resourceType === 'CASE') return resourceId;
   if (resourceType === 'DOCUMENT') {
     const { rows } = await pool.query('SELECT case_id FROM documents WHERE id = $1', [resourceId]);
+    return rows[0] ? rows[0].case_id : null;
+  }
+  if (resourceType === 'EVIDENCE') {
+    const { rows } = await pool.query('SELECT case_id FROM evidence WHERE id = $1', [resourceId]);
     return rows[0] ? rows[0].case_id : null;
   }
   return null;

@@ -46,6 +46,25 @@ const PRIORITY_TONE = {
   CRITICAL: 'danger',
 };
 
+const EVIDENCE_STATUS_TONE = {
+  REGISTERED: 'neutral',
+  SEALED: 'info',
+  VERIFIED: 'success',
+  IN_CUSTODY: 'primary',
+  IN_TRANSIT: 'warning',
+  RECEIVED: 'accent',
+  UNDER_ANALYSIS: 'warning',
+  RETURNED: 'info',
+  ARCHIVED: 'neutral',
+};
+
+const CUSTODY_STATUS_TONE = {
+  PENDING: 'warning',
+  ACKNOWLEDGED: 'info',
+  COMPLETED: 'success',
+  REJECTED: 'danger',
+};
+
 /** @param {{tone?: string, children: import('react').ReactNode}} props */
 export function Badge({ tone = 'neutral', children }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
@@ -73,6 +92,14 @@ export function PriorityBadge({ priority }) {
 
 export function RoleBadge({ role }) {
   return <Badge tone="pink">{role}</Badge>;
+}
+
+export function EvidenceStatusBadge({ status }) {
+  return <Badge tone={EVIDENCE_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
+}
+
+export function CustodyStatusBadge({ status }) {
+  return <Badge tone={CUSTODY_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
 }
 
 /** @param {{tone?: 'danger'|'success'|'info', children: import('react').ReactNode}} props */

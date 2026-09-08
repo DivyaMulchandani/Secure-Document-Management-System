@@ -82,6 +82,10 @@ packages/shared Shared constants used by both apps and by DB seed data
 5. `curl http://localhost:4000/api/v1/audit/health` — proves a request
    reaches a module through the full middleware chain (Helmet, CORS,
    rate limiting, body limits, auth/RBAC stub hooks).
+6. Browse the database at **http://localhost:5050** (pgAdmin, dev-only —
+   `docker compose up -d pgadmin`). No login screen (desktop mode); the
+   "Secure DMS (docker)" server is pre-registered, it just prompts once
+   for the Postgres password (`DB_PASSWORD` in `.env`).
 
 ### Without Docker
 

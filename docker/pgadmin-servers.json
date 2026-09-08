@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Secure DMS (docker)",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "secure_dms_dev",
+      "Username": "secure_dms",
+      "SSLMode": "prefer"
+    }
+  }
+}

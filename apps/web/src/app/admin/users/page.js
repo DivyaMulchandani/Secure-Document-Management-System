@@ -4,6 +4,17 @@ import { useEffect, useState, useCallback } from 'react';
 import { ROLE_LIST } from '@secure-dms/shared';
 import { useAuth } from '../../../lib/auth-context';
 import { apiJson } from '../../../lib/api-client';
+import AppShell from '../../../components/AppShell';
+import AuthLayout from '../../../components/AuthLayout';
+import {
+  Alert,
+  Button,
+  EmptyState,
+  Field,
+  PageHeader,
+  RoleBadge,
+  UserStatusBadge,
+} from '../../../components/ui';
 
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'LOCKED'];
 
@@ -18,15 +29,13 @@ export default function AdminUsersPage() {
   const [inviteResult, setInviteResult] = useState(null);
   const [inviteError, setInviteError] = useState(null);
   const [inviting, setInviting] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
 
   const isAdmin = !!user && user.roles.includes('ADMINISTRATOR');
 
   const refresh = useCallback(async () => {
     try {
-      const [userList, departmentList] = await Promise.all([
-        apiJson('/users'),
-        apiJson('/users/departments'),
-      ]);
+      const [userList, departmentList] = await Promise.all([apiJson('/users'), apiJson('/users/departments')]);
       setUsers(userList);
       setDepartments(departmentList);
       setListError(null);
@@ -68,135 +77,162 @@ export default function AdminUsersPage() {
     refresh();
   }
 
-  if (loading) return <main style={{ padding: '2rem' }}>Loading…</main>;
+  if (loading) return <div className="skeleton-page">Loading…</div>;
   if (!isAdmin) {
     return (
-      <main style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-        <h1>Access denied</h1>
-        <p>
-          You must be an administrator to view this page. <a href="/login">Sign in</a>
-        </p>
-      </main>
+      <AuthLayout title="Access denied" subtitle="You must be an administrator to view this page.">
+        <a href="/login">Sign in as an administrator</a>
+      </AuthLayout>
     );
   }
 
   return (
-    <main style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-      <h1>User management</h1>
+    <AppShell>
+      <div className="page">
+        <PageHeader
+          title="User management"
+          subtitle="Invite investigators, forensic officers, prosecutors, and auditors; manage status and roles."
+          actions={
+            <Button variant={showInvite ? 'outline' : 'primary'} onClick={() => setShowInvite((v) => !v)}>
+              {showInvite ? 'Cancel' : '+ Invite user'}
+            </Button>
+          }
+        />
 
-      <section style={{ marginBottom: '2rem' }}>
-        <h2>Invite a user</h2>
-        <form onSubmit={handleInvite} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'end' }}>
-          <label>
-            Username
-            <input
-              value={inviteForm.username}
-              onChange={(e) => setInviteForm({ ...inviteForm, username: e.target.value })}
-              required
-              style={{ display: 'block' }}
-            />
-          </label>
-          <label>
-            Email
-            <input
-              type="email"
-              value={inviteForm.email}
-              onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-              required
-              style={{ display: 'block' }}
-            />
-          </label>
-          <label>
-            Role
-            <select
-              value={inviteForm.roleName}
-              onChange={(e) => setInviteForm({ ...inviteForm, roleName: e.target.value })}
-              style={{ display: 'block' }}
-            >
-              {ROLE_LIST.map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Department (optional)
-            <select
-              value={inviteForm.departmentId}
-              onChange={(e) => setInviteForm({ ...inviteForm, departmentId: e.target.value })}
-              style={{ display: 'block' }}
-            >
-              <option value="">—</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="submit" disabled={inviting}>
-            {inviting ? 'Inviting…' : 'Invite'}
-          </button>
-        </form>
-        {inviteError && <p style={{ color: 'crimson' }}>{inviteError}</p>}
-        {inviteResult?.activationUrl && (
-          <p>
-            Dev/test mode — activation link: <code>{inviteResult.activationUrl}</code>
-          </p>
+        {showInvite && (
+          <div className="card card-tint section">
+            <h2>Invite a user</h2>
+            <form onSubmit={handleInvite} className="form-grid">
+              <Field label="Username">
+                <input
+                  className="input"
+                  value={inviteForm.username}
+                  onChange={(e) => setInviteForm({ ...inviteForm, username: e.target.value })}
+                  required
+                />
+              </Field>
+              <Field label="Email">
+                <input
+                  className="input"
+                  type="email"
+                  value={inviteForm.email}
+                  onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                  required
+                />
+              </Field>
+              <Field label="Role">
+                <select
+                  className="input"
+                  value={inviteForm.roleName}
+                  onChange={(e) => setInviteForm({ ...inviteForm, roleName: e.target.value })}
+                >
+                  {ROLE_LIST.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Department (optional)">
+                <select
+                  className="input"
+                  value={inviteForm.departmentId}
+                  onChange={(e) => setInviteForm({ ...inviteForm, departmentId: e.target.value })}
+                >
+                  <option value="">—</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Button type="submit" disabled={inviting}>
+                {inviting ? 'Inviting…' : 'Invite'}
+              </Button>
+            </form>
+            <Alert>{inviteError}</Alert>
+            {inviteResult?.activationUrl && (
+              <Alert tone="info">
+                Dev/test mode — activation link: <code>{inviteResult.activationUrl}</code>
+              </Alert>
+            )}
+          </div>
         )}
-      </section>
 
-      <section>
-        <h2>Users</h2>
-        {listError && <p style={{ color: 'crimson' }}>{listError}</p>}
-        <table border="1" cellPadding="6" style={{ borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>Username</th>
-              <th>Email</th>
-              <th>Status</th>
-              <th>Roles</th>
-              <th>Department</th>
-              <th>Failed logins</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td>{u.username}</td>
-                <td>{u.email}</td>
-                <td>{u.status}</td>
-                <td>{u.roles.join(', ') || '—'}</td>
-                <td>{u.department_name || '—'}</td>
-                <td>{u.failed_login_count}</td>
-                <td style={{ display: 'flex', gap: '0.5rem' }}>
-                  <select defaultValue="" onChange={(e) => e.target.value && handleStatusChange(u.id, e.target.value)}>
-                    <option value="">Set status…</option>
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    defaultValue=""
-                    onChange={(e) => e.target.value && handleRolesChange(u.id, [e.target.value])}
-                  >
-                    <option value="">Set role…</option>
-                    {ROLE_LIST.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-    </main>
+        <div className="section">
+          <Alert>{listError}</Alert>
+          {users.length === 0 ? (
+            <EmptyState>No users yet.</EmptyState>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Roles</th>
+                    <th>Department</th>
+                    <th>Failed logins</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id}>
+                      <td>
+                        <strong>{u.username}</strong>
+                      </td>
+                      <td className="muted">{u.email}</td>
+                      <td>
+                        <UserStatusBadge status={u.status} />
+                      </td>
+                      <td>
+                        <div className="row" style={{ gap: 4 }}>
+                          {u.roles.length ? u.roles.map((r) => <RoleBadge key={r} role={r} />) : '—'}
+                        </div>
+                      </td>
+                      <td className="muted">{u.department_name || '—'}</td>
+                      <td>{u.failed_login_count}</td>
+                      <td>
+                        <div className="row" style={{ gap: 6 }}>
+                          <select
+                            className="input"
+                            style={{ padding: '5px 8px', fontSize: 12.5 }}
+                            defaultValue=""
+                            onChange={(e) => e.target.value && handleStatusChange(u.id, e.target.value)}
+                          >
+                            <option value="">Set status…</option>
+                            {STATUS_OPTIONS.map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            className="input"
+                            style={{ padding: '5px 8px', fontSize: 12.5 }}
+                            defaultValue=""
+                            onChange={(e) => e.target.value && handleRolesChange(u.id, [e.target.value])}
+                          >
+                            <option value="">Set role…</option>
+                            {ROLE_LIST.map((r) => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </AppShell>
   );
 }

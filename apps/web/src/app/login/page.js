@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
+import AuthLayout from '../../components/AuthLayout';
+import { Alert, Button, Field } from '../../components/ui';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -34,42 +36,46 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: 360 }}>
-      <h1>Sign in</h1>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <label>
-          Username
+    <AuthLayout
+      title="Sign in"
+      subtitle="Secure access for investigators, forensic officers, prosecutors, and administrators."
+      footer="Invited to a case? Use the activation link from your email to set a password first."
+    >
+      <form onSubmit={handleSubmit} className="stack" style={{ gap: 14 }}>
+        <Field label="Username">
           <input
+            className="input"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            autoFocus
             required
-            style={{ display: 'block', width: '100%' }}
           />
-        </label>
-        <label>
-          Password
+        </Field>
+        <Field label="Password">
           <input
+            className="input"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            style={{ display: 'block', width: '100%' }}
           />
-        </label>
-        <label>
-          6-digit code (only if MFA is enabled on your account)
+        </Field>
+        <Field label="6-digit code (only if MFA is enabled)">
           <input
+            className="input"
             value={otp}
             onChange={(e) => setOtp(e.target.value)}
             maxLength={6}
-            style={{ display: 'block', width: '100%' }}
+            placeholder="••••••"
           />
-        </label>
-        {error && <p style={{ color: 'crimson' }}>{error}</p>}
-        <button type="submit" disabled={submitting}>
+        </Field>
+
+        <Alert>{error}</Alert>
+
+        <Button type="submit" disabled={submitting} style={{ width: '100%', marginTop: 4 }}>
           {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
+        </Button>
       </form>
-    </main>
+    </AuthLayout>
   );
 }

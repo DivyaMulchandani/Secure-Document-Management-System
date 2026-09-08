@@ -5,6 +5,15 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../../../../lib/auth-context';
 import { apiJson, apiBlob } from '../../../../../lib/api-client';
+import AppShell from '../../../../../components/AppShell';
+import AuthLayout from '../../../../../components/AuthLayout';
+import {
+  Alert,
+  Button,
+  DocumentStatusBadge,
+  EmptyState,
+  IntegrityBadge,
+} from '../../../../../components/ui';
 
 export default function DocumentViewerPage() {
   const { id: caseId, documentId } = useParams();
@@ -16,6 +25,7 @@ export default function DocumentViewerPage() {
   const [error, setError] = useState(null);
   const [downloadError, setDownloadError] = useState(null);
   const [commentBody, setCommentBody] = useState('');
+  const [busyVersionId, setBusyVersionId] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -39,8 +49,11 @@ export default function DocumentViewerPage() {
 
   async function handleDownload(versionId) {
     setDownloadError(null);
+    setBusyVersionId(versionId || 'current');
     try {
-      const path = versionId ? `/documents/${documentId}/versions/${versionId}/download` : `/documents/${documentId}/download`;
+      const path = versionId
+        ? `/documents/${documentId}/versions/${versionId}/download`
+        : `/documents/${documentId}/download`;
       const { blob, filename } = await apiBlob(path);
       // The sandbox blocks script-driven saves, so this just opens the
       // decrypted file in a new tab rather than triggering a save.
@@ -54,6 +67,8 @@ export default function DocumentViewerPage() {
           ? 'Integrity check failed — this content no longer matches its recorded hash. Download blocked.'
           : err.message || 'Download failed.',
       );
+    } finally {
+      setBusyVersionId(null);
     }
   }
 
@@ -69,7 +84,10 @@ export default function DocumentViewerPage() {
   async function handleAddComment(e) {
     e.preventDefault();
     try {
-      await apiJson(`/documents/${documentId}/comments`, { method: 'POST', body: JSON.stringify({ body: commentBody }) });
+      await apiJson(`/documents/${documentId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body: commentBody }),
+      });
       setCommentBody('');
       refresh();
     } catch (err) {
@@ -77,97 +95,143 @@ export default function DocumentViewerPage() {
     }
   }
 
-  if (loading) return <main style={{ padding: '2rem' }}>Loading…</main>;
+  if (loading) return <div className="skeleton-page">Loading…</div>;
   if (!user) {
     return (
-      <main style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-        <p>
+      <AuthLayout title="Sign in required">
+        <p className="muted">
           <a href="/login">Sign in</a> to view this document.
         </p>
-      </main>
+      </AuthLayout>
     );
   }
   if (error && !doc) {
     return (
-      <main style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-        <p style={{ color: 'crimson' }}>{error}</p>
-        <p>
+      <AppShell>
+        <div className="page">
+          <Alert>{error}</Alert>
           <Link href={`/cases/${caseId}`}>← Back to case</Link>
-        </p>
-      </main>
+        </div>
+      </AppShell>
     );
   }
-  if (!doc) return <main style={{ padding: '2rem' }}>Loading document…</main>;
+  if (!doc) return <div className="skeleton-page">Loading document…</div>;
 
   return (
-    <main style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-      <p>
-        <Link href={`/cases/${caseId}`}>← Back to case</Link>
-      </p>
-      <h1>{doc.title}</h1>
-      <p>
-        Status: <strong>{doc.status}</strong>
-      </p>
-      {doc.description && <p>{doc.description}</p>}
+    <AppShell>
+      <div className="page">
+        <Link href={`/cases/${caseId}`} className="text-sm muted">
+          ← Back to case
+        </Link>
 
-      <section style={{ marginBottom: '2rem' }}>
-        <button onClick={() => handleDownload()}>Download current version</button>
-        {downloadError && <p style={{ color: 'crimson' }}>{downloadError}</p>}
-      </section>
+        <div className="page-header" style={{ marginTop: 8 }}>
+          <div>
+            <h1>{doc.title}</h1>
+            <div className="row" style={{ marginTop: 4 }}>
+              <DocumentStatusBadge status={doc.status} />
+            </div>
+          </div>
+          <Button onClick={() => handleDownload()} disabled={busyVersionId === 'current'}>
+            {busyVersionId === 'current' ? 'Decrypting…' : '⬇ Download current version'}
+          </Button>
+        </div>
 
-      <section style={{ marginBottom: '2rem' }}>
-        <h2>Version history</h2>
-        <table border="1" cellPadding="6" style={{ borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>Version</th>
-              <th>File</th>
-              <th>Integrity</th>
-              <th>Uploaded by</th>
-              <th>Note</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {versions.map((v) => (
-              <tr key={v.id} style={v.id === doc.current_version_id ? { fontWeight: 'bold' } : undefined}>
-                <td>{v.version_number}</td>
-                <td>{v.file_name}</td>
-                <td>{v.integrity_status}</td>
-                <td>{v.created_by_username}</td>
-                <td>{v.change_note || '—'}</td>
-                <td style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button onClick={() => handleDownload(v.id)}>Download</button>
-                  {v.id !== doc.current_version_id && (
-                    <button onClick={() => handleRestore(v.id)}>Restore</button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+        {doc.description && <p className="muted">{doc.description}</p>}
+        <Alert>{downloadError}</Alert>
 
-      <section>
-        <h2>Comments</h2>
-        <ul>
-          {comments.map((c) => (
-            <li key={c.id}>
-              <strong>{c.author_username}</strong>: {c.body}
-            </li>
-          ))}
-        </ul>
-        <form onSubmit={handleAddComment} style={{ display: 'flex', gap: '0.5rem' }}>
-          <input
-            value={commentBody}
-            onChange={(e) => setCommentBody(e.target.value)}
-            placeholder="Add a comment…"
-            required
-            style={{ flex: 1 }}
-          />
-          <button type="submit">Comment</button>
-        </form>
-      </section>
-    </main>
+        <div className="section">
+          <h2>Version history</h2>
+          {versions.length === 0 ? (
+            <EmptyState>No versions.</EmptyState>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Version</th>
+                    <th>File</th>
+                    <th>Integrity</th>
+                    <th>Uploaded by</th>
+                    <th>Note</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {versions.map((v) => {
+                    const isCurrent = v.id === doc.current_version_id;
+                    return (
+                      <tr key={v.id}>
+                        <td>
+                          <strong>{v.version_number}</strong>
+                          {isCurrent && (
+                            <span className="badge badge-primary" style={{ marginLeft: 8 }}>
+                              current
+                            </span>
+                          )}
+                        </td>
+                        <td className="muted">{v.file_name}</td>
+                        <td>
+                          <IntegrityBadge status={v.integrity_status} />
+                        </td>
+                        <td>{v.created_by_username}</td>
+                        <td className="muted">{v.change_note || '—'}</td>
+                        <td>
+                          <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDownload(v.id)}
+                              disabled={busyVersionId === v.id}
+                            >
+                              {busyVersionId === v.id ? '…' : 'Download'}
+                            </Button>
+                            {!isCurrent && (
+                              <Button size="sm" variant="ghost" onClick={() => handleRestore(v.id)}>
+                                Restore
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="section">
+          <h2>Comments</h2>
+          {comments.length === 0 ? (
+            <EmptyState>No comments yet.</EmptyState>
+          ) : (
+            <div className="stack" style={{ gap: 10, marginBottom: 16 }}>
+              {comments.map((c) => (
+                <div key={c.id} className="card" style={{ padding: '12px 16px' }}>
+                  <div className="text-sm" style={{ fontWeight: 700, color: 'var(--color-slate)' }}>
+                    {c.author_username}
+                  </div>
+                  <div>{c.body}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <form onSubmit={handleAddComment} className="row">
+            <input
+              className="input"
+              style={{ flex: 1 }}
+              value={commentBody}
+              onChange={(e) => setCommentBody(e.target.value)}
+              placeholder="Add a comment…"
+              required
+            />
+            <Button type="submit" variant="secondary">
+              Comment
+            </Button>
+          </form>
+        </div>
+      </div>
+    </AppShell>
   );
 }

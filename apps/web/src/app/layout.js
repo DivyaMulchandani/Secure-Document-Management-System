@@ -1,4 +1,5 @@
 import { AuthProvider } from '../lib/auth-context';
+import './globals.css';
 
 export const metadata = {
   title: 'Secure DMS',

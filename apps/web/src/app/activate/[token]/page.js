@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { apiJson } from '../../../lib/api-client';
+import AuthLayout from '../../../components/AuthLayout';
+import { Alert, Button, Field, Badge } from '../../../components/ui';
 
 export default function ActivatePage() {
   const { token } = useParams();
@@ -52,70 +54,68 @@ export default function ActivatePage() {
 
   if (previewError) {
     return (
-      <main style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-        <h1>Activate account</h1>
-        <p style={{ color: 'crimson' }}>{previewError}</p>
-      </main>
+      <AuthLayout title="Activate account">
+        <Alert>{previewError}</Alert>
+      </AuthLayout>
     );
   }
 
   if (done) {
     return (
-      <main style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-        <h1>Account activated</h1>
-        <p>
+      <AuthLayout title="Account activated">
+        <Alert tone="success">
           Redirecting to <a href="/login">login</a>…
-        </p>
-      </main>
+        </Alert>
+      </AuthLayout>
     );
   }
 
   return (
-    <main style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: 360 }}>
-      <h1>Activate account</h1>
-      {preview && (
-        <p>
-          Invited as <strong>{preview.email}</strong> ({preview.roleName}
-          {preview.departmentName ? `, ${preview.departmentName}` : ''})
-        </p>
-      )}
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-        <label>
-          Full name
+    <AuthLayout
+      title="Activate account"
+      subtitle={
+        preview ? (
+          <>
+            Invited as <strong>{preview.email}</strong>{' '}
+            <Badge tone="pink">{preview.roleName}</Badge>
+            {preview.departmentName ? ` · ${preview.departmentName}` : ''}
+          </>
+        ) : (
+          'Checking your invitation…'
+        )
+      }
+    >
+      <form onSubmit={handleSubmit} className="stack" style={{ gap: 14 }}>
+        <Field label="Full name">
+          <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+        </Field>
+        <Field label="Password">
           <input
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            required
-            style={{ display: 'block', width: '100%' }}
-          />
-        </label>
-        <label>
-          Password
-          <input
+            className="input"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             minLength={8}
             required
-            style={{ display: 'block', width: '100%' }}
           />
-        </label>
-        <label>
-          Confirm password
+        </Field>
+        <Field label="Confirm password">
           <input
+            className="input"
             type="password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             minLength={8}
             required
-            style={{ display: 'block', width: '100%' }}
           />
-        </label>
-        {error && <p style={{ color: 'crimson' }}>{error}</p>}
-        <button type="submit" disabled={submitting || !preview}>
+        </Field>
+
+        <Alert>{error}</Alert>
+
+        <Button type="submit" disabled={submitting || !preview} style={{ width: '100%', marginTop: 4 }}>
           {submitting ? 'Activating…' : 'Activate account'}
-        </button>
+        </Button>
       </form>
-    </main>
+    </AuthLayout>
   );
 }

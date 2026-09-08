@@ -1,0 +1,115 @@
+'use client';
+
+/**
+ * Small, dependency-free presentational primitives shared across every
+ * page — deliberately plain (no component library), styled entirely via
+ * the class names defined in app/globals.css.
+ */
+
+const CASE_STATUS_TONE = {
+  OPEN: 'primary',
+  UNDER_INVESTIGATION: 'accent',
+  UNDER_REVIEW: 'warning',
+  SUBMITTED: 'info',
+  CLOSED: 'neutral',
+  ARCHIVED: 'neutral',
+};
+
+const DOCUMENT_STATUS_TONE = {
+  DRAFT: 'neutral',
+  ACTIVE: 'primary',
+  UNDER_REVIEW: 'warning',
+  APPROVED: 'info',
+  SIGNED: 'accent',
+  FINAL: 'success',
+  ARCHIVED: 'neutral',
+  DELETED: 'danger',
+};
+
+const INTEGRITY_TONE = {
+  VERIFIED: 'success',
+  MODIFIED: 'danger',
+  UNKNOWN: 'neutral',
+};
+
+const USER_STATUS_TONE = {
+  ACTIVE: 'success',
+  INVITED: 'info',
+  INACTIVE: 'neutral',
+  LOCKED: 'danger',
+};
+
+const PRIORITY_TONE = {
+  LOW: 'neutral',
+  MEDIUM: 'info',
+  HIGH: 'warning',
+  CRITICAL: 'danger',
+};
+
+/** @param {{tone?: string, children: import('react').ReactNode}} props */
+export function Badge({ tone = 'neutral', children }) {
+  return <span className={`badge badge-${tone}`}>{children}</span>;
+}
+
+export function CaseStatusBadge({ status }) {
+  return <Badge tone={CASE_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
+}
+
+export function DocumentStatusBadge({ status }) {
+  return <Badge tone={DOCUMENT_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
+}
+
+export function IntegrityBadge({ status }) {
+  return <Badge tone={INTEGRITY_TONE[status] || 'neutral'}>{status || 'UNKNOWN'}</Badge>;
+}
+
+export function UserStatusBadge({ status }) {
+  return <Badge tone={USER_STATUS_TONE[status] || 'neutral'}>{status}</Badge>;
+}
+
+export function PriorityBadge({ priority }) {
+  return <Badge tone={PRIORITY_TONE[priority] || 'neutral'}>{priority}</Badge>;
+}
+
+export function RoleBadge({ role }) {
+  return <Badge tone="pink">{role}</Badge>;
+}
+
+/** @param {{tone?: 'danger'|'success'|'info', children: import('react').ReactNode}} props */
+export function Alert({ tone = 'danger', children }) {
+  if (!children) return null;
+  return <div className={`alert alert-${tone}`}>{children}</div>;
+}
+
+export function EmptyState({ children }) {
+  return <div className="empty-state">{children}</div>;
+}
+
+export function Button({ variant = 'primary', size, className, ...props }) {
+  const classes = ['btn', `btn-${variant}`, size === 'sm' ? 'btn-sm' : '', className || '']
+    .filter(Boolean)
+    .join(' ');
+  // eslint-disable-next-line react/button-has-type
+  return <button className={classes} {...props} />;
+}
+
+export function Field({ label, children }) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+export function PageHeader({ title, subtitle, actions }) {
+  return (
+    <div className="page-header">
+      <div>
+        <h1>{title}</h1>
+        {subtitle && <div className="subtitle">{subtitle}</div>}
+      </div>
+      {actions && <div className="row">{actions}</div>}
+    </div>
+  );
+}

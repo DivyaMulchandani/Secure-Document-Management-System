@@ -54,8 +54,13 @@ function resolveSafePath(storageKey) {
  * @param {Buffer} data
  * @returns {Promise<void>}
  *
- * NOTE(Sprint 0): writes plaintext bytes. No encryption yet.
- * TODO(crypto-sprint): encrypt via services/crypto before write.
+ * This adapter is encryption-agnostic by design (matches the
+ * architecture's storage-adapter contract: "put/get encrypted objects
+ * by storage_key; never returns plaintext"). As of Sprint 3, callers
+ * (documents.service.js) always pass an AES-256-GCM envelope from
+ * services/crypto.encrypt() here — `data` is opaque ciphertext bytes as
+ * far as this module is concerned, and it is never responsible for
+ * encrypting/decrypting them itself.
  */
 async function put(storageKey, data) {
   const target = resolveSafePath(storageKey);
@@ -65,9 +70,9 @@ async function put(storageKey, data) {
 
 /**
  * @param {string} storageKey
- * @returns {Promise<Buffer>}
- *
- * TODO(crypto-sprint): decrypt via services/crypto after read.
+ * @returns {Promise<Buffer>} the raw stored bytes — ciphertext, if the
+ *   caller encrypted before put(); decryption is the caller's job (see
+ *   services/crypto.decrypt()), not this adapter's.
  */
 async function get(storageKey) {
   const target = resolveSafePath(storageKey);

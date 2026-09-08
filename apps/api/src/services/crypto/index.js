@@ -1,16 +1,19 @@
 'use strict';
 
 /**
- * `encrypt`/`decrypt`/`hashSha256`/`signRsa`/`verifyRsa` are STILL STUBS
- * (AES-256-GCM document encryption, SHA-256 integrity, RSA-SHA256
- * signatures land in a later sprint). `hashPassword`/`verifyPassword`
- * are implemented for real here (Sprint 1 — scrypt password hashing).
+ * `signRsa`/`verifyRsa` are still stubs (RSA-SHA256 document signatures
+ * land in a later sprint). `hashPassword`/`verifyPassword` (scrypt,
+ * Sprint 1) and `encrypt`/`decrypt`/`hashSha256` (AES-256-GCM / SHA-256,
+ * Sprint 3 — document encryption + integrity) are real.
  *
- * Deliberately has NO dependency on ../../config — scrypt params are
- * fixed constants, not env-configurable — so this module is safe to
+ * Deliberately has NO dependency on ../../config anywhere in this
+ * module — scrypt params are fixed constants, and encrypt/decrypt take
+ * their key material as an explicit argument rather than reading
+ * config.crypto.masterKey themselves — so this module is safe to
  * `require()` from a migration (see
  * migrations/*_seed-bootstrap-admin.js), which runs outside the app's
- * normal config-fail-fast lifecycle.
+ * normal config-fail-fast lifecycle, and so it stays trivially testable
+ * with any key without needing real config.
  */
 
 const crypto = require('crypto');
@@ -75,6 +78,86 @@ async function verifyPassword(plaintext, storedHash) {
   }
 }
 
+// --- SHA-256 integrity (feature 6) -----------------------------------
+
+/**
+ * @param {Buffer} buffer
+ * @returns {string} lowercase hex digest — the integrity ground-truth
+ *   captured at upload and re-checked on every later access.
+ */
+function hashSha256(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+// --- AES-256-GCM document encryption (feature 5) -----------------------
+
+const AES_ALGORITHM = 'aes-256-gcm';
+const AES_IV_BYTES = 12; // 96-bit IV — the GCM-recommended size
+const AES_AUTH_TAG_BYTES = 16;
+const ENVELOPE_VERSION = 1; // bumps if the envelope layout ever changes
+
+/**
+ * A master "key secret" (any string/passphrase, not necessarily raw hex
+ * — ENCRYPTION_MASTER_KEY is treated as KDF input, not a raw key) is
+ * hashed down to a stable 32-byte AES-256 key. Deterministic: the same
+ * secret always derives the same key, so decrypt() can re-derive it
+ * without storing anything extra.
+ */
+function deriveAesKey(masterKeySecret) {
+  return crypto.createHash('sha256').update(String(masterKeySecret)).digest();
+}
+
+/**
+ * @param {Buffer} plaintext
+ * @param {{masterKeySecret: string, keyId: string}} keyMaterial supplied
+ *   by the caller (documents.service.js, from config.crypto.masterKey /
+ *   config.documents.encryptionKeyId) — this module never reads config.
+ * @returns {{envelope: Buffer, keyId: string}} `envelope` is a single
+ *   self-describing buffer — [1 byte version][12-byte IV][16-byte auth
+ *   tag][ciphertext] — that's what actually gets handed to
+ *   services/storage.put(); `keyId` is recorded on the document_version
+ *   row so a future key rotation knows which key to re-derive for
+ *   decrypt.
+ */
+function encrypt(plaintext, { masterKeySecret, keyId }) {
+  const key = deriveAesKey(masterKeySecret);
+  const iv = crypto.randomBytes(AES_IV_BYTES);
+  const cipher = crypto.createCipheriv(AES_ALGORITHM, key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+
+  const envelope = Buffer.concat([Buffer.from([ENVELOPE_VERSION]), iv, authTag, ciphertext]);
+  return { envelope, keyId };
+}
+
+/**
+ * @param {Buffer} envelope as produced by encrypt()
+ * @param {{masterKeySecret: string}} keyMaterial
+ * @returns {Buffer} plaintext
+ * @throws if the envelope is malformed or the auth tag doesn't verify
+ *   (tampered/corrupted ciphertext, or the wrong key) — GCM's built-in
+ *   authenticity check, independent of and in addition to the SHA-256
+ *   integrity check done at the document layer.
+ */
+function decrypt(envelope, { masterKeySecret }) {
+  if (!Buffer.isBuffer(envelope) || envelope.length < 1 + AES_IV_BYTES + AES_AUTH_TAG_BYTES) {
+    throw new Error('crypto.decrypt: malformed envelope');
+  }
+  const version = envelope[0];
+  if (version !== ENVELOPE_VERSION) {
+    throw new Error(`crypto.decrypt: unsupported envelope version ${version}`);
+  }
+
+  const iv = envelope.subarray(1, 1 + AES_IV_BYTES);
+  const authTag = envelope.subarray(1 + AES_IV_BYTES, 1 + AES_IV_BYTES + AES_AUTH_TAG_BYTES);
+  const ciphertext = envelope.subarray(1 + AES_IV_BYTES + AES_AUTH_TAG_BYTES);
+
+  const key = deriveAesKey(masterKeySecret);
+  const decipher = crypto.createDecipheriv(AES_ALGORITHM, key, iv);
+  decipher.setAuthTag(authTag);
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+}
+
 function notImplemented(name) {
   return () => {
     throw new Error(`crypto.${name} is not implemented yet (Sprint 0 stub)`);
@@ -82,9 +165,9 @@ function notImplemented(name) {
 }
 
 module.exports = {
-  encrypt: notImplemented('encrypt'), // AES-256-GCM
-  decrypt: notImplemented('decrypt'),
-  hashSha256: notImplemented('hashSha256'),
+  encrypt,
+  decrypt,
+  hashSha256,
   signRsa: notImplemented('signRsa'), // RSA-SHA256
   verifyRsa: notImplemented('verifyRsa'),
   hashPassword,

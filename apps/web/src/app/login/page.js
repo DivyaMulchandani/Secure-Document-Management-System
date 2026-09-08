@@ -19,7 +19,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const user = await login(username, password, otp || undefined);
-      router.push(user.roles.includes('ADMINISTRATOR') ? '/admin/users' : '/');
+      router.push(user.roles.includes('ADMINISTRATOR') ? '/admin/users' : '/cases');
     } catch (err) {
       if (err.code === 'ACCOUNT_LOCKED') {
         setError('This account is locked. Contact an administrator.');

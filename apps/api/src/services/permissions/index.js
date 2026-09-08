@@ -15,7 +15,12 @@ const { ROLES, PERMISSIONS, CASE_ROLES } = require('@secure-dms/shared');
  *
  * Layer 2 — Case scope: case_members says which cases are in reach at
  * all; case_role further narrows what a member can do ON that case
- * (see CASE_ROLE_ACTIONS below). Deliberately NO administrator bypass —
+ * (see CASE_ROLE_ACTIONS below). For a resource that BELONGS TO a case
+ * (e.g. DOCUMENT) rather than being a case itself, the case-scope check
+ * resolves the resource's owning case_id first (see
+ * resolveOwningCaseId) and checks case_members against THAT — a
+ * document's case-scope access is exactly its parent case's access.
+ * Deliberately NO administrator bypass —
  * an Administrator who isn't a case member has no more case-content
  * access than anyone else who isn't (matches the architecture's Role
  * Capability Matrix, where Administrator's ceiling on case/document
@@ -64,6 +69,7 @@ const ROLE_ACTION_CEILING = Object.freeze({
   ],
   [ROLES.FORENSIC_OFFICER]: [
     PERMISSIONS.VIEW,
+    PERMISSIONS.UPLOAD, // conditional in the matrix ("forensic reports" only) — not enforced by document_type this sprint, see CASE_ROLE_ACTIONS.FORENSIC note
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.COMMENT,
     PERMISSIONS.SIGN,
@@ -84,6 +90,8 @@ const CASE_ROLE_ACTIONS = Object.freeze({
   [CASE_ROLES.OWNER]: [
     PERMISSIONS.VIEW,
     PERMISSIONS.EDIT,
+    PERMISSIONS.UPLOAD,
+    PERMISSIONS.DOWNLOAD,
     PERMISSIONS.SHARE,
     PERMISSIONS.COMMENT,
     PERMISSIONS.ARCHIVE,
@@ -92,12 +100,20 @@ const CASE_ROLE_ACTIONS = Object.freeze({
   [CASE_ROLES.INVESTIGATOR]: [
     PERMISSIONS.VIEW,
     PERMISSIONS.EDIT,
+    PERMISSIONS.UPLOAD,
+    PERMISSIONS.DOWNLOAD,
     PERMISSIONS.SHARE,
     PERMISSIONS.COMMENT,
   ],
-  [CASE_ROLES.FORENSIC]: [PERMISSIONS.VIEW, PERMISSIONS.COMMENT],
-  [CASE_ROLES.PROSECUTOR]: [PERMISSIONS.VIEW, PERMISSIONS.COMMENT],
-  [CASE_ROLES.VIEWER]: [PERMISSIONS.VIEW],
+  // Matrix: forensic officers may upload, but only forensic-report-type
+  // documents — this sprint doesn't refine by document_type_id, so
+  // UPLOAD is allowed case-wide for a FORENSIC member; tightening to
+  // "only when document_type_id = FORENSIC_REPORT" is a reasonable
+  // later refinement, not a correctness bug (it's strictly more
+  // permissive than the matrix, never less).
+  [CASE_ROLES.FORENSIC]: [PERMISSIONS.VIEW, PERMISSIONS.UPLOAD, PERMISSIONS.DOWNLOAD, PERMISSIONS.COMMENT],
+  [CASE_ROLES.PROSECUTOR]: [PERMISSIONS.VIEW, PERMISSIONS.DOWNLOAD, PERMISSIONS.COMMENT],
+  [CASE_ROLES.VIEWER]: [PERMISSIONS.VIEW, PERMISSIONS.DOWNLOAD],
 });
 
 /**
@@ -114,12 +130,32 @@ async function can(user, action, resource) {
   );
   if (!roleAllows) return false;
 
-  if (resource.type === 'CASE') {
-    const caseScopeAllows = await checkCaseScope(user.id, resource.id, action);
+  const caseId = await resolveOwningCaseId(resource.type, resource.id);
+  if (caseId) {
+    const caseScopeAllows = await checkCaseScope(user.id, caseId, action);
     if (caseScopeAllows) return true;
   }
 
   return checkResourceGrant(user.id, resource.type, resource.id, action);
+}
+
+/**
+ * @param {string} resourceType
+ * @param {string} resourceId
+ * @returns {Promise<string|null>} the case_id that "owns" this
+ *   resource's case-scope, or null if the resource type isn't
+ *   case-scoped (or a resolver for it doesn't exist yet — EVIDENCE/
+ *   REPORT fall through to null until their modules land, which is
+ *   safe: it just means case-scope contributes nothing and only an
+ *   explicit resource_permissions grant can allow access to them).
+ */
+async function resolveOwningCaseId(resourceType, resourceId) {
+  if (resourceType === 'CASE') return resourceId;
+  if (resourceType === 'DOCUMENT') {
+    const { rows } = await pool.query('SELECT case_id FROM documents WHERE id = $1', [resourceId]);
+    return rows[0] ? rows[0].case_id : null;
+  }
+  return null;
 }
 
 async function checkCaseScope(userId, caseId, action) {

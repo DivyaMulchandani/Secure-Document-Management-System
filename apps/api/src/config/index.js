@@ -92,6 +92,24 @@ const config = Object.freeze({
   app: Object.freeze({
     baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
   }),
+  documents: Object.freeze({
+    maxSizeBytes: Number(process.env.DOCUMENT_MAX_SIZE_MB || 25) * 1024 * 1024,
+    allowedMimeTypes: Object.freeze(
+      (
+        process.env.DOCUMENT_ALLOWED_MIME_TYPES ||
+        'application/pdf,image/jpeg,image/png,image/tiff,application/msword,' +
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain'
+      )
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+    // Fixed identifier for the current single master key (see
+    // services/crypto) — the seam document_versions.key_id gives us for
+    // introducing real key rotation / envelope encryption later without
+    // a schema change.
+    encryptionKeyId: process.env.ENCRYPTION_KEY_ID || 'master-v1',
+  }),
 });
 
 module.exports = config;

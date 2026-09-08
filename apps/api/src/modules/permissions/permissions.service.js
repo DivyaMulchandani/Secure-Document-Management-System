@@ -13,17 +13,23 @@ async function health() {
 }
 
 /**
- * Who may grant/list/revoke access grants on a resource: for CASE
- * resources, the same SHARE right used to add case members; other
- * resource types (documents/evidence/reports, wired up in later
- * sprints) don't have ownership semantics yet, so fall back to
- * ADMINISTRATOR-only until they do.
+ * Who may grant/list/revoke access grants on a resource: for any
+ * resource type the permission engine already knows how to resolve an
+ * owning case for (CASE itself, and — since Sprint 3 — DOCUMENT via
+ * services/permissions.resolveOwningCaseId), the same SHARE right used
+ * to add case members. can() internally resolves DOCUMENT's case_id and
+ * checks case_membership/case_role against it, so this one check
+ * correctly covers both resource types without special-casing each —
+ * whoever could add a case member can also grant a document-level
+ * exception on that case's documents. Resource types without an owning-
+ * case resolver yet (EVIDENCE/REPORT) fall back to ADMINISTRATOR-only
+ * until their modules land.
  */
 async function assertGrantAuthority(actorUser, resourceType, resourceId) {
-  if (resourceType === 'CASE') {
-    const allowed = await permissionsEngine.can(actorUser, PERMISSIONS.SHARE, { type: 'CASE', id: resourceId });
+  if (resourceType === 'CASE' || resourceType === 'DOCUMENT') {
+    const allowed = await permissionsEngine.can(actorUser, PERMISSIONS.SHARE, { type: resourceType, id: resourceId });
     if (!allowed) {
-      throw httpError(403, 'FORBIDDEN', 'You do not have permission to manage access for this case.');
+      throw httpError(403, 'FORBIDDEN', 'You do not have permission to manage access for this resource.');
     }
     return;
   }

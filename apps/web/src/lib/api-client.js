@@ -27,7 +27,15 @@ function getAccessToken() {
  * @param {boolean} [isRetry] internal — prevents infinite refresh loops
  */
 async function apiFetch(path, options = {}, isRetry = false) {
-  const headers = { 'content-type': 'application/json', ...(options.headers || {}) };
+  // FormData bodies (document upload) must NOT get an explicit
+  // content-type — the browser sets multipart/form-data with the
+  // correct boundary itself; forcing application/json here would break
+  // the upload entirely.
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+  const headers = {
+    ...(isFormData ? {} : { 'content-type': 'application/json' }),
+    ...(options.headers || {}),
+  };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -79,4 +87,26 @@ async function apiJson(path, options = {}) {
   return data;
 }
 
-export { apiFetch, apiJson, setAccessToken, getAccessToken, tryRefresh, API_BASE_URL };
+/**
+ * For file downloads (GET .../download) — returns the blob plus the
+ * filename the server suggested via Content-Disposition, or throws the
+ * same normalized error shape as apiJson on a non-2xx response (the API
+ * still returns JSON error bodies for those, e.g. 409 INTEGRITY_FAILURE).
+ */
+async function apiBlob(path) {
+  const res = await apiFetch(path);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const err = new Error(data?.error?.message || `Request failed (${res.status})`);
+    err.status = res.status;
+    err.code = data?.error?.code;
+    throw err;
+  }
+  const disposition = res.headers.get('content-disposition') || '';
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  const filename = match ? decodeURIComponent(match[1]) : 'download';
+  const blob = await res.blob();
+  return { blob, filename, integrityStatus: res.headers.get('x-integrity-status') };
+}
+
+export { apiFetch, apiJson, apiBlob, setAccessToken, getAccessToken, tryRefresh, API_BASE_URL };

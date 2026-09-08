@@ -33,6 +33,14 @@ canonical reference once it's added to the repo.
   against the recorded hash before serving bytes. RSA-SHA256 signatures
   are still a future sprint. Uploads via `multer` (memory storage,
   configurable size/MIME limits).
+- **Evidence & chain of custody**: `evidence` + `evidence_artifacts` +
+  a tamper-evident, per-evidence-item hash-chained `custody_events`
+  ledger (`services/custody-ledger`, independent of the global audit
+  chain). Register → seal → verify → transfer → accept/reject, with
+  every artifact re-hashed and compared on every hand-off; a failed
+  integrity check on receipt blocks the transfer, keeps the item
+  `IN_TRANSIT`, and raises a `security_events(CUSTODY_VIOLATION)` row.
+  Every custody action also writes a global `audit_events` row.
 - **Shared constants**: `packages/shared` (roles, permissions,
   document types)
 
@@ -86,20 +94,32 @@ real rather than trusting the API's own claims about it.
 
 ## Status
 
-**Sprint 3 — Documents core.** `documents` is real: upload encrypts
-(AES-256-GCM) and hashes (SHA-256) before a single byte reaches disk,
-every download decrypts and re-verifies the hash (a mismatch blocks
-the download with 409, flips `integrity_status` to `MODIFIED`, and
-raises a real `security_events(INTEGRITY_FAILURE)` row), and a
-correction always creates a new forward version — nothing is ever
-silently overwritten, and "restoring" an old version creates yet
-another new version rather than rewinding history. The Sprint-2
-permission engine now covers `DOCUMENT` as a real resource type
-(case-scoped access resolves through the document's owning case) in
-addition to `CASE`. Also closed a gap flagged after Sprint 2: every
-`requirePermission` denial (not just documents) now writes a real
-`security_events(UNAUTH_ACCESS)` row, matching the architecture's
-"deny is logged too" principle. `evidence`, `signatures`, `sharing`,
-`verification`, and `approval` (P1 — everything that builds on
-documents existing) are still ahead. The architecture dossier (see
-above) describes what gets built on top of this foundation next.
+**Sprint 4 — Evidence vault & chain of custody.** `evidence` is real:
+register → seal → verify → transfer → accept/reject, enforcing the
+full evidence state machine (`ALLOWED_TRANSITIONS` in
+`evidence.service.js`) and re-verifying every artifact's SHA-256 hash
+on every hand-off — not just at upload. Custody is tracked in its own
+tamper-evident, hash-chained `custody_events` ledger
+(`services/custody-ledger`), scoped per evidence item and independent
+of the global `audit_events` chain, with an advisory-lock namespace
+that serializes writers per-item rather than globally. The literal
+"done when" bar: a two-party transfer (`POST /transfers` →
+`POST /transfers/:id/accept`) re-verifies integrity before completing,
+and on success writes both a `custody_events(RECEIVE, COMPLETED)` row
+and an `audit_events(EVIDENCE_TRANSFER, SUCCESS)` row — an integrity
+failure on receipt instead blocks the transfer, raises a
+`security_events(CUSTODY_VIOLATION)` row, and leaves the item
+`IN_TRANSIT`. Archiving is deliberately decoupled from physical
+custody (case-closure action, not a hand-off) so it isn't blocked by
+whichever role happens to be holding the item last. The permission
+engine's `CASE_ROLE_ACTIONS` also picked up a latent-gap fix this
+sprint: `VERIFY` is now granted to every case role (the matrix's
+"verify integrity/custody: all roles" row was never actually wired to
+a guarded route until evidence's `/verify` and `/custody/verify`).
+Frontend: evidence registration, an artifact list with re-verified
+downloads, a chain-of-custody timeline, and transfer request/accept/
+reject UI, all wired into the case workspace and a new evidence detail
+page — same design system as the rest of the app. `signatures`,
+`sharing`, `verification`, and `approval` (the remaining P1 modules)
+are still ahead. The architecture dossier (see above) describes what
+gets built on top of this foundation next.

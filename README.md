@@ -27,7 +27,17 @@ canonical reference once it's added to the repo.
   the admin security dashboard, future sprint)
 - **Access control**: three-layer engine — RBAC role ceiling, case
   scope (`case_members`), and expiring per-resource grants
-  (`resource_permissions`) — see `services/permissions`
+  (`resource_permissions`) — see `services/permissions`. The role
+  ceiling is a real police organizational hierarchy (44 roles — State
+  HQ down through Ranges/Districts/Commissionerates/SRPF/GRP/Marine/
+  External units to Stations/Chokis, each an `_ADMIN` + `_OFFICER`
+  pair — see `packages/shared/src/constants/roles.js`), not a flat
+  list; account-creation authority is itself hierarchical and scoped
+  to the creator's own unit subtree (`departments`, extended with a
+  `unit_type` + recursive-CTE subtree checks in `users.service.js`).
+  Per-case collaborator roles (`case_members.case_role`) are a
+  deliberately separate, unrelated axis — who's assigned to *one
+  specific* case, not org rank.
 - **Documents**: AES-256-GCM encryption + SHA-256 integrity, both real
   (`services/crypto`) — every access decrypts, re-hashes, and compares
   against the recorded hash before serving bytes. Uploads via `multer`
@@ -80,13 +90,15 @@ packages/shared Shared constants used by both apps and by DB seed data
 1. `cp .env.example .env` and fill in real values (never commit `.env`).
 2. `docker compose up --build` — brings up Postgres, the API, and the web app.
 3. `docker compose exec api npm run migrate:up` — applies migrations and
-   seeds `roles`, `permissions`, `document_types`, and a bootstrap
-   `ADMINISTRATOR` user (runs inside the `api` container, which already
-   has `DATABASE_URL` and `BOOTSTRAP_ADMIN_USERNAME`/`_EMAIL`/`_PASSWORD`
-   from `.env` via `env_file`). The bootstrap-admin seed migration reads
-   those three vars directly from `process.env`, not via `src/config`, so
-   they must be present in whatever shell/container actually runs
-   `migrate:up` — not just in the API's own runtime env.
+   seeds `roles` (the full 44-role police hierarchy), `permissions`,
+   `document_types`, a root `State Headquarters` department, and a
+   bootstrap `STATE_HQ_ADMIN` user attached to it (runs inside the `api`
+   container, which already has `DATABASE_URL` and
+   `BOOTSTRAP_ADMIN_USERNAME`/`_EMAIL`/`_PASSWORD` from `.env` via
+   `env_file`). The bootstrap-admin seed migration reads those three
+   vars directly from `process.env`, not via `src/config`, so they must
+   be present in whatever shell/container actually runs `migrate:up` —
+   not just in the API's own runtime env.
 4. `curl http://localhost:4000/health` — should return `200` with
    `checks.database: "ok"`.
 5. `curl http://localhost:4000/api/v1/audit/health` — proves a request
@@ -125,6 +137,46 @@ enough under the CPU contention of many suites running back to back
 against a containerized Postgres.
 
 ## Status
+
+**Post-Sprint-6 — Police organizational hierarchy (role system
+replacement).** The identity layer sprints 1–6 were built on — five flat
+functional roles (`ADMINISTRATOR`/`INVESTIGATOR`/`FORENSIC_OFFICER`/
+`PROSECUTOR`/`AUDITOR`) — has been replaced end to end with a real
+police chain-of-command hierarchy supplied after a conversation with an
+actual police contact: State HQ → Wings/Ranges/Commissionerates/SRPF/
+GRP/Marine/External units → down to Stations/Chokis, 44 roles total
+(every unit gets an `_ADMIN`, who manages that unit's accounts *and*
+does normal case/document work, plus an `_OFFICER` for rank-and-file
+staff — PSI/ASI/HC/Constable/Jt.CP/etc. are a `users.rank` label, not
+distinct roles). Account-creation authority is itself hierarchical and
+enforced server-side: a role may only create the role(s) directly below
+it, and only within its own unit's subtree (`departments`, now tagged
+with `unit_type` and walked via a recursive CTE in
+`users.service.js#assertCreationAuthority`) — a `RANGE_ADMIN` can create
+a `DISTRICT_ADMIN` in their own range, never a `STATION_ADMIN` directly,
+never in someone else's range. `packages/shared/src/constants/roles.js`
+is the single source of truth (one small table of 22 unit levels
+generates all 44 role names, the creation-hierarchy, and the
+permission-ceiling tiers — nothing is hand-listed per role).
+`services/permissions`'s `ROLE_ACTION_CEILING` collapses to 4 computed
+tiers (Command/Officer/External/Oversight) rather than 44 individual
+entries; `CASE_ROLE_ACTIONS` (the separate, per-case collaborator axis —
+`case_members.case_role`, unrelated to org rank) is untouched, which is
+the main reason this was a contained change rather than a rewrite of
+every module: `documents`/`evidence`/`signatures`/`verification`/
+`sharing`/`approval` gate on `PERMISSIONS.*` generically and never
+reference role names directly. The literal "done when" bar: the
+bootstrap identity is `STATE_HQ_ADMIN`; it can invite a `RANGE_ADMIN`,
+who invites a `DISTRICT_ADMIN` for their own range, who invites a
+`SUBDIVISION_ADMIN` for their own district, who invites a
+`STATION_ADMIN` for their own subdivision — each step blocked with a
+403 if the inviter lacks authority for that role or unit — verified
+live end to end against a freshly-migrated Docker stack (chain-building,
+both negative-authority checks, and a full case → document → sign →
+share → approval → evidence walk), plus the full 135-test suite
+(role names systematically migrated via a new shared
+`test/helpers/create-user.js`, replacing 14 duplicated copies) passing
+in ~30s against a clean database.
 
 **Sprint 6 — Secure sharing & approval workflow. All P1 features are now
 in place — this is a complete, defensible demo end to end.**

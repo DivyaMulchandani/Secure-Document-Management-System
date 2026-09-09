@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { createsRolesFor } from '@secure-dms/shared';
 import { useAuth } from '../lib/auth-context';
 
 /**
@@ -19,7 +20,9 @@ export default function AppShell({ children }) {
     router.push('/login');
   }
 
-  const isAdmin = !!user && user.roles.includes('ADMINISTRATOR');
+  // "Admin" now means "this role creates at least one other role" —
+  // any _ADMIN in the police hierarchy, not a single fixed role name.
+  const canManageUsers = !!user && createsRolesFor((user.roles || [])[0]).length > 0;
   const navLink = (href, label) => (
     <Link href={href} className={`nav-link${pathname.startsWith(href) ? ' nav-link-active' : ''}`}>
       {label}
@@ -41,7 +44,7 @@ export default function AppShell({ children }) {
               {navLink('/signatures/queue', 'Signature queue')}
               {navLink('/approval/inbox', 'Approval inbox')}
               {navLink('/sharing/mine', 'Shared with me')}
-              {isAdmin && navLink('/admin/users', 'Users')}
+              {canManageUsers && navLink('/admin/users', 'Users')}
             </nav>
           )}
 

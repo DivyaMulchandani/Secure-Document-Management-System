@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { ROLE_LIST } from '@secure-dms/shared';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { createsRolesFor, parseRole, roleTitle } from '@secure-dms/shared';
 import { useAuth } from '../../../lib/auth-context';
 import { apiJson } from '../../../lib/api-client';
 import AppShell from '../../../components/AppShell';
@@ -17,6 +17,7 @@ import {
 } from '../../../components/ui';
 
 const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'LOCKED'];
+const EMPTY_INVITE = { username: '', email: '', roleName: '', departmentId: '', newUnitName: '', rank: '' };
 
 export default function AdminUsersPage() {
   const { user, loading } = useAuth();
@@ -25,13 +26,18 @@ export default function AdminUsersPage() {
   const [departments, setDepartments] = useState([]);
   const [listError, setListError] = useState(null);
 
-  const [inviteForm, setInviteForm] = useState({ username: '', email: '', roleName: ROLE_LIST[0], departmentId: '' });
+  const [inviteForm, setInviteForm] = useState(EMPTY_INVITE);
   const [inviteResult, setInviteResult] = useState(null);
   const [inviteError, setInviteError] = useState(null);
   const [inviting, setInviting] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [creatingUnit, setCreatingUnit] = useState(false);
 
-  const isAdmin = !!user && user.roles.includes('ADMINISTRATOR');
+  const myRole = (user?.roles || [])[0];
+  // "Admin" now means "this role creates at least one other role" — any
+  // _ADMIN in the police hierarchy, not a single fixed role name.
+  const creatableRoles = useMemo(() => createsRolesFor(myRole), [myRole]);
+  const canManageUsers = creatableRoles.length > 0;
 
   const refresh = useCallback(async () => {
     try {
@@ -45,8 +51,19 @@ export default function AdminUsersPage() {
   }, []);
 
   useEffect(() => {
-    if (isAdmin) refresh();
-  }, [isAdmin, refresh]);
+    if (canManageUsers) refresh();
+  }, [canManageUsers, refresh]);
+
+  // Only units directly under the caller's own department, matching the
+  // right unit type for the selected role — mirrors the exact scoping
+  // users.service.js#assertCreationAuthority enforces server-side, so the
+  // picker never offers a choice the API would reject.
+  const selectedParsed = inviteForm.roleName ? parseRole(inviteForm.roleName) : null;
+  const isOwnOfficerRole = selectedParsed?.side === 'OFFICER';
+  const eligibleChildDepartments = useMemo(() => {
+    if (!selectedParsed || isOwnOfficerRole || !user?.departmentId) return [];
+    return departments.filter((d) => d.parent_department_id === user.departmentId && d.unit_type === selectedParsed.level);
+  }, [departments, selectedParsed, isOwnOfficerRole, user?.departmentId]);
 
   async function handleInvite(e) {
     e.preventDefault();
@@ -54,11 +71,20 @@ export default function AdminUsersPage() {
     setInviteResult(null);
     setInviting(true);
     try {
-      const payload = { ...inviteForm };
-      if (!payload.departmentId) delete payload.departmentId;
+      const payload = {
+        username: inviteForm.username,
+        email: inviteForm.email,
+        roleName: inviteForm.roleName,
+      };
+      if (inviteForm.rank) payload.rank = inviteForm.rank;
+      if (!isOwnOfficerRole) {
+        if (creatingUnit && inviteForm.newUnitName) payload.newUnitName = inviteForm.newUnitName;
+        else if (inviteForm.departmentId) payload.departmentId = inviteForm.departmentId;
+      }
       const result = await apiJson('/users/invite', { method: 'POST', body: JSON.stringify(payload) });
       setInviteResult(result);
-      setInviteForm({ username: '', email: '', roleName: ROLE_LIST[0], departmentId: '' });
+      setInviteForm(EMPTY_INVITE);
+      setCreatingUnit(false);
       refresh();
     } catch (err) {
       setInviteError(err.message || 'Invite failed.');
@@ -78,10 +104,10 @@ export default function AdminUsersPage() {
   }
 
   if (loading) return <div className="skeleton-page">Loading…</div>;
-  if (!isAdmin) {
+  if (!canManageUsers) {
     return (
-      <AuthLayout title="Access denied" subtitle="You must be an administrator to view this page.">
-        <a href="/login">Sign in as an administrator</a>
+      <AuthLayout title="Access denied" subtitle="Your role doesn't manage any accounts.">
+        <a href="/login">Sign in with an account-managing role</a>
       </AuthLayout>
     );
   }
@@ -91,7 +117,7 @@ export default function AdminUsersPage() {
       <div className="page">
         <PageHeader
           title="User management"
-          subtitle="Invite investigators, forensic officers, prosecutors, and auditors; manage status and roles."
+          subtitle={`Signed in as ${roleTitle(myRole)} (${myRole}) — you may create: ${creatableRoles.join(', ')}.`}
           actions={
             <Button variant={showInvite ? 'outline' : 'primary'} onClick={() => setShowInvite((v) => !v)}>
               {showInvite ? 'Cancel' : '+ Invite user'}
@@ -124,30 +150,67 @@ export default function AdminUsersPage() {
                 <select
                   className="input"
                   value={inviteForm.roleName}
-                  onChange={(e) => setInviteForm({ ...inviteForm, roleName: e.target.value })}
+                  onChange={(e) => {
+                    setInviteForm({ ...inviteForm, roleName: e.target.value, departmentId: '', newUnitName: '' });
+                    setCreatingUnit(false);
+                  }}
+                  required
                 >
-                  {ROLE_LIST.map((role) => (
+                  <option value="">— choose a role —</option>
+                  {creatableRoles.map((role) => (
                     <option key={role} value={role}>
-                      {role}
+                      {roleTitle(role)} ({role})
                     </option>
                   ))}
                 </select>
               </Field>
-              <Field label="Department (optional)">
-                <select
+              <Field label="Rank / job title (optional)">
+                <input
                   className="input"
-                  value={inviteForm.departmentId}
-                  onChange={(e) => setInviteForm({ ...inviteForm, departmentId: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                  value={inviteForm.rank}
+                  onChange={(e) => setInviteForm({ ...inviteForm, rank: e.target.value })}
+                  placeholder="e.g. PSI, Jt.CP, Internal Audit"
+                />
               </Field>
-              <Button type="submit" disabled={inviting}>
+
+              {selectedParsed && !isOwnOfficerRole && (
+                <Field label="Unit">
+                  {!creatingUnit ? (
+                    <div className="stack" style={{ gap: 6 }}>
+                      <select
+                        className="input"
+                        value={inviteForm.departmentId}
+                        onChange={(e) => setInviteForm({ ...inviteForm, departmentId: e.target.value })}
+                      >
+                        <option value="">— choose an existing {selectedParsed.level} unit —</option>
+                        {eligibleChildDepartments.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setCreatingUnit(true)}>
+                        + Create a new {selectedParsed.level} unit instead
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="stack" style={{ gap: 6 }}>
+                      <input
+                        className="input"
+                        value={inviteForm.newUnitName}
+                        onChange={(e) => setInviteForm({ ...inviteForm, newUnitName: e.target.value })}
+                        placeholder={`New ${selectedParsed.level} unit name`}
+                        required
+                      />
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setCreatingUnit(false)}>
+                        Pick an existing unit instead
+                      </Button>
+                    </div>
+                  )}
+                </Field>
+              )}
+
+              <Button type="submit" disabled={inviting || !inviteForm.roleName}>
                 {inviting ? 'Inviting…' : 'Invite'}
               </Button>
             </form>
@@ -217,7 +280,7 @@ export default function AdminUsersPage() {
                             onChange={(e) => e.target.value && handleRolesChange(u.id, [e.target.value])}
                           >
                             <option value="">Set role…</option>
-                            {ROLE_LIST.map((r) => (
+                            {creatableRoles.map((r) => (
                               <option key={r} value={r}>
                                 {r}
                               </option>

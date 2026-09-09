@@ -16,6 +16,7 @@ process.env.RATE_LIMIT_WINDOW_MS = '60000';
 const request = require('supertest');
 const buildApp = require('../src/app');
 const { pool } = require('../src/db/pool');
+const { loginBootstrapAdmin, createActivatedUser } = require('./helpers/create-user');
 
 const app = buildApp();
 
@@ -23,46 +24,15 @@ afterAll(async () => {
   await pool.end();
 });
 
-function unique(prefix) {
-  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-}
-
-/** Invite + activate + log in a fresh user with the given global role; returns { userId, accessToken }. */
-async function createActivatedUser(adminToken, roleName) {
-  const username = unique(roleName.toLowerCase());
-  const email = `${username}@example.com`;
-  const password = 'Str0ngP@ssw0rd!';
-
-  const invite = await request(app)
-    .post('/api/v1/users/invite')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ username, email, roleName });
-  expect(invite.status).toBe(200);
-
-  const activate = await request(app)
-    .post(`/api/v1/users/activate/${invite.body.activationToken}`)
-    .send({ password, fullName: username });
-  expect(activate.status).toBe(200);
-
-  const login = await request(app).post('/api/v1/auth/login').send({ username, password });
-  expect(login.status).toBe(200);
-
-  return { userId: login.body.user.id, accessToken: login.body.accessToken, username };
-}
-
 describe('cases module + permission engine', () => {
   let adminToken;
   let investigator; // { userId, accessToken }
 
   beforeAll(async () => {
-    const adminLogin = await request(app).post('/api/v1/auth/login').send({
-      username: process.env.BOOTSTRAP_ADMIN_USERNAME,
-      password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
-    });
-    expect(adminLogin.status).toBe(200);
-    adminToken = adminLogin.body.accessToken;
+    const admin = await loginBootstrapAdmin(app);
+    adminToken = admin.accessToken;
 
-    investigator = await createActivatedUser(adminToken, 'INVESTIGATOR');
+    investigator = await createActivatedUser(app, 'COMMISSIONERATE_ADMIN');
   });
 
   it('lets an investigator create a case with a year-scoped sequential case number', async () => {
@@ -77,8 +47,8 @@ describe('cases module + permission engine', () => {
     expect(res.body.owner_id).toBe(investigator.userId);
   });
 
-  it('forbids a role with no "create case" ceiling (e.g. a fresh AUDITOR) from creating a case', async () => {
-    const auditor = await createActivatedUser(adminToken, 'AUDITOR');
+  it('forbids a role with no "create case" ceiling (e.g. a fresh Internal Audit officer) from creating a case', async () => {
+    const auditor = await createActivatedUser(app, 'ADMINISTRATION_HQ_OFFICER');
     const res = await request(app)
       .post('/api/v1/cases')
       .set('Authorization', `Bearer ${auditor.accessToken}`)
@@ -98,8 +68,8 @@ describe('cases module + permission engine', () => {
         .send({ title: 'Three-Layer Test Case' });
       caseId = created.body.id;
 
-      outsider = await createActivatedUser(adminToken, 'PROSECUTOR');
-      viewerMember = await createActivatedUser(adminToken, 'PROSECUTOR');
+      outsider = await createActivatedUser(app, 'EXTERNAL_UNIT_OFFICER');
+      viewerMember = await createActivatedUser(app, 'EXTERNAL_UNIT_OFFICER');
     });
 
     it('the creator (case OWNER) can view and edit the case', async () => {

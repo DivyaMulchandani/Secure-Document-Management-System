@@ -9,7 +9,7 @@ const { httpError } = require('../errors');
  * authentication check, so it's usable standalone — no need to also
  * stack requireAuth in front of it.
  *
- * @param {...string} allowedRoles e.g. ROLES.ADMINISTRATOR from @secure-dms/shared
+ * @param {...string} allowedRoles e.g. ROLES.STATE_HQ_ADMIN from @secure-dms/shared
  */
 function requireRole(...allowedRoles) {
   return (req, res, next) => {

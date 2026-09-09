@@ -26,7 +26,7 @@ async function lookup(req, res, next) {
 
 async function invite(req, res, next) {
   try {
-    const result = await service.inviteUser({ invitedByUserId: req.user.id, ...req.body });
+    const result = await service.inviteUser({ actorUser: req.user, ...req.body });
     res.status(200).json(result);
   } catch (err) {
     next(err);
@@ -53,7 +53,7 @@ async function activate(req, res, next) {
 
 async function list(req, res, next) {
   try {
-    const result = await service.listUsers(req.query);
+    const result = await service.listUsers(req.user, req.query);
     res.status(200).json(result);
   } catch (err) {
     next(err);
@@ -72,7 +72,7 @@ async function getById(req, res, next) {
 async function updateStatus(req, res, next) {
   try {
     const result = await service.updateUserStatus({
-      adminId: req.user.id,
+      actorUser: req.user,
       targetId: req.params.id,
       status: req.body.status,
     });
@@ -85,7 +85,7 @@ async function updateStatus(req, res, next) {
 async function updateRoles(req, res, next) {
   try {
     const result = await service.updateUserRoles({
-      adminId: req.user.id,
+      actorUser: req.user,
       targetId: req.params.id,
       roleNames: req.body.roleNames,
     });
@@ -106,7 +106,7 @@ async function listDepartments(req, res, next) {
 
 async function createDepartment(req, res, next) {
   try {
-    const result = await service.createDepartment(req.body);
+    const result = await service.createDepartment({ actorUser: req.user, ...req.body });
     res.status(201).json(result);
   } catch (err) {
     next(err);

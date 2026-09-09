@@ -23,6 +23,7 @@ process.env.STORAGE_ROOT_PATH = path.join(os.tmpdir(), `secure-dms-documents-tes
 const request = require('supertest');
 const buildApp = require('../src/app');
 const { pool } = require('../src/db/pool');
+const { createActivatedUser } = require('./helpers/create-user');
 
 const app = buildApp();
 
@@ -31,40 +32,12 @@ afterAll(async () => {
   await pool.end();
 });
 
-function unique(prefix) {
-  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-}
-
-async function createActivatedUser(adminToken, roleName) {
-  const username = unique(roleName.toLowerCase());
-  const email = `${username}@example.com`;
-  const password = 'Str0ngP@ssw0rd!';
-
-  const invite = await request(app)
-    .post('/api/v1/users/invite')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ username, email, roleName });
-  const activate = await request(app)
-    .post(`/api/v1/users/activate/${invite.body.activationToken}`)
-    .send({ password, fullName: username });
-  expect(activate.status).toBe(200);
-  const login = await request(app).post('/api/v1/auth/login').send({ username, password });
-  return { userId: login.body.user.id, accessToken: login.body.accessToken };
-}
-
 describe('documents module — the spine: encryption, integrity, versioning', () => {
-  let adminToken;
-  let owner; // investigator, owns the test case
+  let owner; // COMMISSIONERATE_ADMIN, owns the test case
   let caseId;
 
   beforeAll(async () => {
-    const adminLogin = await request(app).post('/api/v1/auth/login').send({
-      username: process.env.BOOTSTRAP_ADMIN_USERNAME,
-      password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
-    });
-    adminToken = adminLogin.body.accessToken;
-
-    owner = await createActivatedUser(adminToken, 'INVESTIGATOR');
+    owner = await createActivatedUser(app, 'COMMISSIONERATE_ADMIN');
 
     const created = await request(app)
       .post('/api/v1/cases')
@@ -251,8 +224,8 @@ describe('documents module — the spine: encryption, integrity, versioning', ()
         .attach('file', Buffer.from('secret'), { filename: 'secret.pdf', contentType: 'application/pdf' });
       documentId = created.body.id;
 
-      outsider = await createActivatedUser(adminToken, 'PROSECUTOR');
-      viewerMember = await createActivatedUser(adminToken, 'PROSECUTOR');
+      outsider = await createActivatedUser(app, 'EXTERNAL_UNIT_OFFICER');
+      viewerMember = await createActivatedUser(app, 'EXTERNAL_UNIT_OFFICER');
       await request(app)
         .post(`/api/v1/cases/${caseId}/members`)
         .set('Authorization', `Bearer ${owner.accessToken}`)

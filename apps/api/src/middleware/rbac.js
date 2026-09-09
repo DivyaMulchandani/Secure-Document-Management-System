@@ -10,7 +10,7 @@
  *
  * Sprint 1 partially satisfies the "authorize" step of the golden path
  * with simple RBAC-role checks, but those are applied per-route via
- * middleware/require-role.js (e.g. requireRole(ROLES.ADMINISTRATOR)),
+ * middleware/require-role.js (e.g. requireRole(ROLES.STATE_HQ_ADMIN)),
  * not here — this global step stays a documented passthrough that never
  * denies a request on its own.
  */

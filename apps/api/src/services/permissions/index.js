@@ -1,7 +1,7 @@
 'use strict';
 
 const { pool } = require('../../db/pool');
-const { ROLES, PERMISSIONS, CASE_ROLES } = require('@secure-dms/shared');
+const { ROLE_LIST, ceilingTierFor, PERMISSIONS, CASE_ROLES } = require('@secure-dms/shared');
 
 /**
  * Real implementation of the three-layer access model (docs/architecture
@@ -10,8 +10,9 @@ const { ROLES, PERMISSIONS, CASE_ROLES } = require('@secure-dms/shared');
  *
  * Layer 1 — RBAC role ceiling: a static map of "what can this GLOBAL
  * role ever do, at most" (see ROLE_ACTION_CEILING below). This is the
- * architecture's baseline: e.g. an Auditor can never EDIT, no matter
- * what case they're a member of.
+ * architecture's baseline: e.g. an Internal Audit officer
+ * (ADMINISTRATION_HQ_OFFICER) can never EDIT, no matter what case they're
+ * a member of.
  *
  * Layer 2 — Case scope: case_members says which cases are in reach at
  * all; case_role further narrows what a member can do ON that case
@@ -42,8 +43,30 @@ const { ROLES, PERMISSIONS, CASE_ROLES } = require('@secure-dms/shared');
  * to retune as later sprints add document/evidence resource types.
  */
 
-const ROLE_ACTION_CEILING = Object.freeze({
-  [ROLES.ADMINISTRATOR]: [
+/**
+ * Four tiers, computed once from the 44-role police hierarchy
+ * (packages/shared/src/constants/roles.js) rather than hand-listing all
+ * 44 — every role's tier comes from `ceilingTierFor(role)`, which reads
+ * that role's unit level's `tier` (OPERATIONAL/OVERSIGHT/EXTERNAL) plus
+ * whether it's the `_ADMIN` or `_OFFICER` side:
+ *
+ *   - COMMAND (every operational `_ADMIN`): full ceiling — an admin runs
+ *     their unit's accounts AND does normal case/document work, up to
+ *     and including DELETE/ARCHIVE (matches the old ADMINISTRATOR/
+ *     INVESTIGATOR ceiling).
+ *   - OFFICER (every operational `_OFFICER`): case work minus the
+ *     management-flavored actions (no SHARE/DELETE/ARCHIVE) — matches
+ *     the old FORENSIC_OFFICER ceiling.
+ *   - EXTERNAL (EXTERNAL_UNIT, both sides): outside the chain of
+ *     command — review/comment/sign/verify only, no edit/upload/share/
+ *     delete/archive. Matches the old PROSECUTOR ceiling exactly.
+ *   - OVERSIGHT (ADMINISTRATION_HQ/ADMINISTRATION_IT, both sides):
+ *     deliberate exception to "admins do both" — Internal Audit/IT
+ *     support staff don't drive case work. Matches the old AUDITOR
+ *     ceiling.
+ */
+const TIER_CEILINGS = Object.freeze({
+  COMMAND: [
     PERMISSIONS.VIEW,
     PERMISSIONS.EDIT,
     PERMISSIONS.UPLOAD,
@@ -55,37 +78,25 @@ const ROLE_ACTION_CEILING = Object.freeze({
     PERMISSIONS.DELETE,
     PERMISSIONS.ARCHIVE,
   ],
-  [ROLES.INVESTIGATOR]: [
+  OFFICER: [
     PERMISSIONS.VIEW,
     PERMISSIONS.EDIT,
     PERMISSIONS.UPLOAD,
     PERMISSIONS.DOWNLOAD,
-    PERMISSIONS.SHARE,
-    PERMISSIONS.COMMENT,
-    PERMISSIONS.SIGN,
-    PERMISSIONS.VERIFY,
-    PERMISSIONS.DELETE,
-    PERMISSIONS.ARCHIVE,
-  ],
-  [ROLES.FORENSIC_OFFICER]: [
-    PERMISSIONS.VIEW,
-    PERMISSIONS.EDIT, // matrix: "Register/transfer evidence ⬤ (receive/analyse)" — seal/verify/analyze/return are EDIT-class evidence-state changes
-    PERMISSIONS.UPLOAD, // conditional in the matrix ("forensic reports" only) — not enforced by document_type this sprint, see CASE_ROLE_ACTIONS.FORENSIC note
-    PERMISSIONS.DOWNLOAD,
     PERMISSIONS.COMMENT,
     PERMISSIONS.SIGN,
     PERMISSIONS.VERIFY,
   ],
-  [ROLES.PROSECUTOR]: [
-    PERMISSIONS.VIEW,
-    PERMISSIONS.DOWNLOAD,
-    PERMISSIONS.COMMENT,
-    PERMISSIONS.SIGN,
-    PERMISSIONS.VERIFY,
-  ],
-  // Least-privilege, read-only oversight — matrix: "Auditor may VERIFY, never EDIT".
-  [ROLES.AUDITOR]: [PERMISSIONS.VIEW, PERMISSIONS.VERIFY, PERMISSIONS.DOWNLOAD],
+  EXTERNAL: [PERMISSIONS.VIEW, PERMISSIONS.DOWNLOAD, PERMISSIONS.COMMENT, PERMISSIONS.SIGN, PERMISSIONS.VERIFY],
+  OVERSIGHT: [PERMISSIONS.VIEW, PERMISSIONS.VERIFY, PERMISSIONS.DOWNLOAD, PERMISSIONS.COMMENT],
 });
+
+const ROLE_ACTION_CEILING = Object.freeze(
+  ROLE_LIST.reduce((acc, role) => {
+    acc[role] = TIER_CEILINGS[ceilingTierFor(role)];
+    return acc;
+  }, {}),
+);
 
 // PERMISSIONS.VERIFY is deliberately in EVERY row below (not just the
 // global ROLE_ACTION_CEILING) — the matrix's "Verify integrity /
@@ -96,12 +107,19 @@ const ROLE_ACTION_CEILING = Object.freeze({
 // re-check happens as a DOWNLOAD side effect, never as its own guarded
 // action, so this gap was latent until this sprint.
 //
-// PERMISSIONS.SIGN mirrors ROLE_ACTION_CEILING's own SIGN grants
-// (INVESTIGATOR/FORENSIC_OFFICER/PROSECUTOR/ADMINISTRATOR, not AUDITOR)
-// — same latent-gap shape as VERIFY above, found by signatures.routes.js
-// (Sprint 5), the first routes to gate on PERMISSIONS.SIGN. VIEWER is
-// deliberately excluded (read-only case role; matrix has no viewer-signs
-// capability).
+// PERMISSIONS.SIGN mirrors ROLE_ACTION_CEILING's own SIGN grants (every
+// tier except OVERSIGHT — see TIER_CEILINGS above) — same latent-gap
+// shape as VERIFY above, found by signatures.routes.js (Sprint 5), the
+// first routes to gate on PERMISSIONS.SIGN. VIEWER is deliberately
+// excluded (read-only case role; matrix has no viewer-signs capability).
+//
+// NOTE: this table predates the Sprint-"police hierarchy" role
+// replacement and is intentionally untouched by it — CASE_ROLES
+// (who's assigned to *one specific* case, and how) is a separate axis
+// from the global org-rank role system in
+// packages/shared/src/constants/roles.js; keeping the two independent
+// is exactly why replacing 5 roles with 44 didn't require a 44-way
+// remapping here.
 const CASE_ROLE_ACTIONS = Object.freeze({
   [CASE_ROLES.OWNER]: [
     PERMISSIONS.VIEW,
@@ -133,7 +151,7 @@ const CASE_ROLE_ACTIONS = Object.freeze({
   // permissive than the matrix, never less).
   [CASE_ROLES.FORENSIC]: [
     PERMISSIONS.VIEW,
-    PERMISSIONS.EDIT, // register/seal/verify/transfer/analyze/return evidence — see ROLE_ACTION_CEILING.FORENSIC_OFFICER note
+    PERMISSIONS.EDIT, // register/seal/verify/transfer/analyze/return evidence — an OFFICER-tier global role ceiling already includes EDIT (see TIER_CEILINGS above)
     PERMISSIONS.UPLOAD,
     PERMISSIONS.DOWNLOAD,
     PERMISSIONS.COMMENT,

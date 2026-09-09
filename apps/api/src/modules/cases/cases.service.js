@@ -4,7 +4,7 @@ const repository = require('./cases.repository');
 const { withTransaction } = require('../../db/pool');
 const ledger = require('../../services/ledger');
 const { httpError } = require('../../errors');
-const { ROLES, CASE_ROLES, CASE_STATUSES } = require('@secure-dms/shared');
+const { TOP_OVERSIGHT_ROLES, CASE_ROLES, CASE_STATUSES } = require('@secure-dms/shared');
 
 async function health() {
   const result = await repository.healthCheck();
@@ -14,7 +14,7 @@ async function health() {
 /**
  * Legal case-status transitions (docs/architecture — "Lifecycle state
  * machines · CASE"). CLOSED -> UNDER_INVESTIGATION is the "reopen
- * (authorized)" transition — gated to ADMINISTRATOR only, below.
+ * (authorized)" transition — gated to the top-oversight tier only, below.
  */
 const ALLOWED_TRANSITIONS = Object.freeze({
   [CASE_STATUSES.OPEN]: [CASE_STATUSES.UNDER_INVESTIGATION],
@@ -58,18 +58,16 @@ async function getCase(id) {
 }
 
 /**
- * ADMINISTRATOR/AUDITOR see every case (matches the Role Capability
- * Matrix's "Read full audit ledger" / oversight posture — extended
- * here to case visibility for the same two oversight roles). Everyone
- * else sees only cases they're an active case_member of; this is a
- * LISTING-level convenience, not a bypass of per-case access — opening
- * a specific case's full detail/content still goes through
+ * The audit/oversight tier (TOP_OVERSIGHT_ROLES — STATE_HQ_ADMIN,
+ * ADMINISTRATION_HQ_ADMIN/OFFICER) sees every case. Everyone else sees
+ * only cases they're an active case_member of; this is a LISTING-level
+ * convenience, not a bypass of per-case access — opening a specific
+ * case's full detail/content still goes through
  * services/permissions.can() same as everyone (see the "Admin case
  * bypass" decision).
  */
 async function listCases(requestingUser, filters) {
-  const isPrivileged =
-    requestingUser.roles.includes(ROLES.ADMINISTRATOR) || requestingUser.roles.includes(ROLES.AUDITOR);
+  const isPrivileged = requestingUser.roles.some((r) => TOP_OVERSIGHT_ROLES.includes(r));
   return repository.listCases({ userId: requestingUser.id, isPrivileged, ...filters });
 }
 
@@ -106,8 +104,8 @@ async function updateCaseStatus({ actorUserId, actorRoles, id, status }) {
   }
 
   const isReopen = existing.status === CASE_STATUSES.CLOSED && status === CASE_STATUSES.UNDER_INVESTIGATION;
-  if (isReopen && !actorRoles.includes(ROLES.ADMINISTRATOR)) {
-    throw httpError(403, 'FORBIDDEN', 'Only an administrator can reopen a closed case.');
+  if (isReopen && !actorRoles.some((r) => TOP_OVERSIGHT_ROLES.includes(r))) {
+    throw httpError(403, 'FORBIDDEN', 'Only top-level command can reopen a closed case.');
   }
 
   const closedAt = status === CASE_STATUSES.CLOSED ? new Date() : isReopen ? null : existing.closed_at;

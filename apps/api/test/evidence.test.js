@@ -22,6 +22,7 @@ process.env.STORAGE_ROOT_PATH = path.join(os.tmpdir(), `secure-dms-evidence-test
 const request = require('supertest');
 const buildApp = require('../src/app');
 const { pool } = require('../src/db/pool');
+const { createActivatedUser } = require('./helpers/create-user');
 
 const app = buildApp();
 
@@ -30,44 +31,16 @@ afterAll(async () => {
   await pool.end();
 });
 
-function unique(prefix) {
-  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-}
-
-async function createActivatedUser(adminToken, roleName) {
-  const username = unique(roleName.toLowerCase());
-  const email = `${username}@example.com`;
-  const password = 'Str0ngP@ssw0rd!';
-
-  const invite = await request(app)
-    .post('/api/v1/users/invite')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ username, email, roleName });
-  const activate = await request(app)
-    .post(`/api/v1/users/activate/${invite.body.activationToken}`)
-    .send({ password, fullName: username });
-  expect(activate.status).toBe(200);
-  const login = await request(app).post('/api/v1/auth/login').send({ username, password });
-  return { userId: login.body.user.id, accessToken: login.body.accessToken };
-}
-
 describe('evidence module — vault + chain of custody', () => {
-  let adminToken;
-  let owner; // INVESTIGATOR, case owner (initial custodian)
-  let recipient; // FORENSIC_OFFICER, added as a case member (eligible recipient)
-  let outsider; // PROSECUTOR, never added to the case
+  let owner; // COMMISSIONERATE_ADMIN, case owner (initial custodian)
+  let recipient; // COMMISSIONERATE_OFFICER, added as a case member (eligible recipient)
+  let outsider; // EXTERNAL_UNIT_OFFICER, never added to the case
   let caseId;
 
   beforeAll(async () => {
-    const adminLogin = await request(app).post('/api/v1/auth/login').send({
-      username: process.env.BOOTSTRAP_ADMIN_USERNAME,
-      password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
-    });
-    adminToken = adminLogin.body.accessToken;
-
-    owner = await createActivatedUser(adminToken, 'INVESTIGATOR');
-    recipient = await createActivatedUser(adminToken, 'FORENSIC_OFFICER');
-    outsider = await createActivatedUser(adminToken, 'PROSECUTOR');
+    owner = await createActivatedUser(app, 'COMMISSIONERATE_ADMIN');
+    recipient = await createActivatedUser(app, 'COMMISSIONERATE_OFFICER');
+    outsider = await createActivatedUser(app, 'EXTERNAL_UNIT_OFFICER');
 
     const created = await request(app)
       .post('/api/v1/cases')

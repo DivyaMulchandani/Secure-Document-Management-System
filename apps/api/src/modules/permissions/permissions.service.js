@@ -5,7 +5,7 @@ const { withTransaction } = require('../../db/pool');
 const ledger = require('../../services/ledger');
 const permissionsEngine = require('../../services/permissions');
 const { httpError } = require('../../errors');
-const { ROLES, PERMISSIONS } = require('@secure-dms/shared');
+const { TOP_OVERSIGHT_ROLES, PERMISSIONS } = require('@secure-dms/shared');
 
 async function health() {
   const result = await repository.healthCheck();
@@ -22,8 +22,8 @@ async function health() {
  * correctly covers both resource types without special-casing each —
  * whoever could add a case member can also grant a document-level
  * exception on that case's documents. Resource types without an owning-
- * case resolver yet (EVIDENCE/REPORT) fall back to ADMINISTRATOR-only
- * until their modules land.
+ * case resolver yet (EVIDENCE/REPORT) fall back to the top-oversight
+ * tier only until their modules land.
  */
 async function assertGrantAuthority(actorUser, resourceType, resourceId) {
   if (resourceType === 'CASE' || resourceType === 'DOCUMENT') {
@@ -33,11 +33,11 @@ async function assertGrantAuthority(actorUser, resourceType, resourceId) {
     }
     return;
   }
-  if (!actorUser.roles.includes(ROLES.ADMINISTRATOR)) {
+  if (!actorUser.roles.some((r) => TOP_OVERSIGHT_ROLES.includes(r))) {
     throw httpError(
       403,
       'FORBIDDEN',
-      'Only an administrator can manage access grants for this resource type yet.',
+      'Only top-level command can manage access grants for this resource type yet.',
     );
   }
 }

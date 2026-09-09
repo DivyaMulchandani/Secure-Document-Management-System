@@ -1,7 +1,7 @@
 'use strict';
 
 const express = require('express');
-const { ROLES, PERMISSIONS } = require('@secure-dms/shared');
+const { PERMISSIONS, CASE_CREATOR_ROLES } = require('@secure-dms/shared');
 const controller = require('./cases.controller');
 const validate = require('../../middleware/validate');
 const requireAuth = require('../../middleware/require-auth');
@@ -22,17 +22,18 @@ const caseResource = (req) => ({ type: 'CASE', id: req.params.id });
 
 router.get('/health', controller.getHealth);
 
-// "Create / own cases": Investigator (full), Administrator (scoped) —
-// matches the Role Capability Matrix.
+// "Create / own cases": every role that runs an actual investigating/
+// operational unit (CASE_CREATOR_ROLES = everyone except the oversight
+// tier and the external tier — see packages/shared/src/constants/roles.js).
 router.post(
   '/',
-  requireRole(ROLES.ADMINISTRATOR, ROLES.INVESTIGATOR),
+  requireRole(...CASE_CREATOR_ROLES),
   validate({ body: schemas.createCaseBodySchema }),
   controller.create,
 );
 
 // Any authenticated role may list — the service scopes results to the
-// caller's own case memberships unless they're ADMINISTRATOR/AUDITOR.
+// caller's own case memberships unless they're in the audit/oversight tier.
 router.get('/', requireAuth, validate({ query: schemas.listCasesQuerySchema }), controller.list);
 
 router.get(

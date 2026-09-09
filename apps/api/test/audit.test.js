@@ -16,33 +16,13 @@ process.env.RATE_LIMIT_WINDOW_MS = '60000';
 const request = require('supertest');
 const buildApp = require('../src/app');
 const { pool } = require('../src/db/pool');
+const { loginBootstrapAdmin, createActivatedUser } = require('./helpers/create-user');
 
 const app = buildApp();
 
 afterAll(async () => {
   await pool.end();
 });
-
-function unique(prefix) {
-  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-}
-
-async function createActivatedUser(adminToken, roleName) {
-  const username = unique(roleName.toLowerCase());
-  const email = `${username}@example.com`;
-  const password = 'Str0ngP@ssw0rd!';
-
-  const invite = await request(app)
-    .post('/api/v1/users/invite')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ username, email, roleName });
-  const activate = await request(app)
-    .post(`/api/v1/users/activate/${invite.body.activationToken}`)
-    .send({ password, fullName: username });
-  expect(activate.status).toBe(200);
-  const login = await request(app).post('/api/v1/auth/login').send({ username, password });
-  return { userId: login.body.user.id, accessToken: login.body.accessToken };
-}
 
 describe('audit module', () => {
   let adminToken;
@@ -51,14 +31,11 @@ describe('audit module', () => {
   let ownCaseId;
 
   beforeAll(async () => {
-    const adminLogin = await request(app).post('/api/v1/auth/login').send({
-      username: process.env.BOOTSTRAP_ADMIN_USERNAME,
-      password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
-    });
-    adminToken = adminLogin.body.accessToken;
+    const admin = await loginBootstrapAdmin(app);
+    adminToken = admin.accessToken;
 
-    investigatorA = await createActivatedUser(adminToken, 'INVESTIGATOR');
-    investigatorB = await createActivatedUser(adminToken, 'INVESTIGATOR');
+    investigatorA = await createActivatedUser(app, 'COMMISSIONERATE_ADMIN');
+    investigatorB = await createActivatedUser(app, 'COMMISSIONERATE_ADMIN');
 
     const created = await request(app)
       .post('/api/v1/cases')
@@ -90,9 +67,9 @@ describe('audit module', () => {
     expect(resB.body.length).toBe(0);
   });
 
-  it('a FORENSIC_OFFICER has no audit ledger access at all', async () => {
-    const forensic = await createActivatedUser(adminToken, 'FORENSIC_OFFICER');
-    const res = await request(app).get('/api/v1/audit').set('Authorization', `Bearer ${forensic.accessToken}`);
+  it('the external tier (courts/prosecution/labs) has no audit ledger access at all', async () => {
+    const external = await createActivatedUser(app, 'EXTERNAL_UNIT_OFFICER');
+    const res = await request(app).get('/api/v1/audit').set('Authorization', `Bearer ${external.accessToken}`);
     expect(res.status).toBe(403);
   });
 

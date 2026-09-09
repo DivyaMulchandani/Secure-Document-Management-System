@@ -22,6 +22,7 @@ process.env.STORAGE_ROOT_PATH = path.join(os.tmpdir(), `secure-dms-sharing-test-
 const request = require('supertest');
 const buildApp = require('../src/app');
 const { pool } = require('../src/db/pool');
+const { createActivatedUser } = require('./helpers/create-user');
 
 const app = buildApp();
 
@@ -30,45 +31,17 @@ afterAll(async () => {
   await pool.end();
 });
 
-function unique(prefix) {
-  return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-}
-
-async function createActivatedUser(adminToken, roleName) {
-  const username = unique(roleName.toLowerCase());
-  const email = `${username}@example.com`;
-  const password = 'Str0ngP@ssw0rd!';
-
-  const invite = await request(app)
-    .post('/api/v1/users/invite')
-    .set('Authorization', `Bearer ${adminToken}`)
-    .send({ username, email, roleName });
-  const activate = await request(app)
-    .post(`/api/v1/users/activate/${invite.body.activationToken}`)
-    .send({ password, fullName: username });
-  expect(activate.status).toBe(200);
-  const login = await request(app).post('/api/v1/auth/login').send({ username, password });
-  return { userId: login.body.user.id, accessToken: login.body.accessToken };
-}
-
 describe('sharing module — time-limited access grants, layered on the three-layer permission engine', () => {
-  let adminToken;
-  let owner; // INVESTIGATOR, case owner, has SHARE
-  let forensic; // FORENSIC_OFFICER, case member, does NOT have SHARE
+  let owner; // COMMISSIONERATE_ADMIN, case owner, has SHARE
+  let forensic; // COMMISSIONERATE_OFFICER, case member, does NOT have SHARE
   let outsider; // never a case member, and not shared with (yet)
   let caseId;
   let documentId;
 
   beforeAll(async () => {
-    const adminLogin = await request(app).post('/api/v1/auth/login').send({
-      username: process.env.BOOTSTRAP_ADMIN_USERNAME,
-      password: process.env.BOOTSTRAP_ADMIN_PASSWORD,
-    });
-    adminToken = adminLogin.body.accessToken;
-
-    owner = await createActivatedUser(adminToken, 'INVESTIGATOR');
-    forensic = await createActivatedUser(adminToken, 'FORENSIC_OFFICER');
-    outsider = await createActivatedUser(adminToken, 'PROSECUTOR');
+    owner = await createActivatedUser(app, 'COMMISSIONERATE_ADMIN');
+    forensic = await createActivatedUser(app, 'COMMISSIONERATE_OFFICER');
+    outsider = await createActivatedUser(app, 'EXTERNAL_UNIT_OFFICER');
 
     const created = await request(app)
       .post('/api/v1/cases')

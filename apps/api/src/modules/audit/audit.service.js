@@ -3,7 +3,7 @@
 const repository = require('./audit.repository');
 const ledger = require('../../services/ledger');
 const { httpError } = require('../../errors');
-const { ROLES } = require('@secure-dms/shared');
+const { AUDIT_ROLES, CASE_CREATOR_ROLES } = require('@secure-dms/shared');
 
 async function health() {
   const result = await repository.healthCheck();
@@ -12,17 +12,19 @@ async function health() {
 
 /**
  * Read access to the ledger (feature 19 / Role Capability Matrix "Read
- * full audit ledger + export"): ADMINISTRATOR and AUDITOR see
- * everything; INVESTIGATOR is scoped to their own cases' events;
- * FORENSIC_OFFICER/PROSECUTOR have no ledger access at all (matrix: "—").
+ * full audit ledger + export"): the audit tier (STATE_HQ_ADMIN,
+ * ADMINISTRATION_HQ_ADMIN/OFFICER — Internal Audit) sees everything;
+ * every operational role (CASE_CREATOR_ROLES) is scoped to their own
+ * cases' events; the external tier (courts/prosecution/labs) has no
+ * ledger access at all.
  */
 async function listEvents(requestingUser, filters) {
   const { roles, id: userId } = requestingUser;
 
-  if (roles.includes(ROLES.ADMINISTRATOR) || roles.includes(ROLES.AUDITOR)) {
+  if (roles.some((r) => AUDIT_ROLES.includes(r))) {
     return repository.listEvents({ ...filters, caseIds: null });
   }
-  if (roles.includes(ROLES.INVESTIGATOR)) {
+  if (roles.some((r) => CASE_CREATOR_ROLES.includes(r))) {
     const caseIds = await repository.findCaseIdsForUser(userId);
     return repository.listEvents({ ...filters, caseIds });
   }

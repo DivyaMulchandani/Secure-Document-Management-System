@@ -71,7 +71,14 @@ async function searchActiveUsers(query, limit = 10, executor = pool) {
   return rows;
 }
 
-async function listUsers({ status, departmentId, page = 1, pageSize = 20 } = {}, executor = pool) {
+/**
+ * `departmentIds` (plural) scopes the list to a subtree — see
+ * `findDepartmentsWithinSubtree` — used by users.service.js so an admin
+ * only ever sees accounts within their own unit's chain of command; pass
+ * `null`/omit for unrestricted (STATE_HQ_ADMIN's subtree is the whole
+ * tree, so it never needs this — see users.service.js#listUsers).
+ */
+async function listUsers({ status, departmentId, departmentIds, page = 1, pageSize = 20 } = {}, executor = pool) {
   const conditions = [];
   const params = [];
 
@@ -82,6 +89,10 @@ async function listUsers({ status, departmentId, page = 1, pageSize = 20 } = {},
   if (departmentId) {
     params.push(departmentId);
     conditions.push(`u.department_id = $${params.length}`);
+  }
+  if (departmentIds) {
+    params.push(departmentIds);
+    conditions.push(`u.department_id = ANY($${params.length}::uuid[])`);
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -140,6 +151,10 @@ async function setUserPasswordAndActivate({ id, passwordHash, fullName }, execut
      WHERE id = $3`,
     [passwordHash, fullName, id],
   );
+}
+
+async function setUserRank(id, rank, executor = pool) {
+  await executor.query('UPDATE users SET rank = $1, updated_at = now() WHERE id = $2', [rank, id]);
 }
 
 async function setMfaEnabled(id, enabled, executor = pool) {
@@ -229,12 +244,52 @@ async function findDepartmentById(id, executor = pool) {
   return rows[0] || null;
 }
 
-async function insertDepartment({ name, code, parentDepartmentId = null }, executor = pool) {
+async function insertDepartment({ name, code, parentDepartmentId = null, unitType = null }, executor = pool) {
   const { rows } = await executor.query(
-    `INSERT INTO departments (name, code, parent_department_id) VALUES ($1,$2,$3) RETURNING *`,
-    [name, code, parentDepartmentId],
+    `INSERT INTO departments (name, code, parent_department_id, unit_type) VALUES ($1,$2,$3,$4) RETURNING *`,
+    [name, code, parentDepartmentId, unitType],
   );
   return rows[0];
+}
+
+/**
+ * True if `targetDepartmentId` is `rootDepartmentId` itself or anywhere
+ * in its subtree — walks parent_department_id upward from the target
+ * until it either reaches the root (true) or runs out of ancestors
+ * (false). Powers the police-hierarchy creation-scoping rule: an admin
+ * may only create/manage accounts within their own unit's chain of
+ * command (users.service.js's invite/status/roles authority checks).
+ */
+async function isDepartmentWithinSubtree(rootDepartmentId, targetDepartmentId, executor = pool) {
+  if (rootDepartmentId === targetDepartmentId) return true;
+  const { rows } = await executor.query(
+    `WITH RECURSIVE ancestors AS (
+       SELECT id, parent_department_id FROM departments WHERE id = $2
+       UNION ALL
+       SELECT d.id, d.parent_department_id
+       FROM departments d
+       JOIN ancestors a ON d.id = a.parent_department_id
+     )
+     SELECT 1 FROM ancestors WHERE id = $1 LIMIT 1`,
+    [rootDepartmentId, targetDepartmentId],
+  );
+  return rows.length > 0;
+}
+
+/** The reverse of isDepartmentWithinSubtree — every department in `rootDepartmentId`'s own subtree, root included. Powers the invite form's department picker and scoped user listing. */
+async function findDepartmentsWithinSubtree(rootDepartmentId, executor = pool) {
+  const { rows } = await executor.query(
+    `WITH RECURSIVE descendants AS (
+       SELECT * FROM departments WHERE id = $1
+       UNION ALL
+       SELECT d.*
+       FROM departments d
+       JOIN descendants ds ON d.parent_department_id = ds.id
+     )
+     SELECT * FROM descendants ORDER BY name`,
+    [rootDepartmentId],
+  );
+  return rows;
 }
 
 module.exports = {
@@ -250,6 +305,7 @@ module.exports = {
   incrementFailedLoginCount,
   setLastLoginAt,
   setUserPasswordAndActivate,
+  setUserRank,
   setMfaEnabled,
   findRoleByName,
   findRoleById,
@@ -263,4 +319,6 @@ module.exports = {
   listDepartments,
   findDepartmentById,
   insertDepartment,
+  isDepartmentWithinSubtree,
+  findDepartmentsWithinSubtree,
 };

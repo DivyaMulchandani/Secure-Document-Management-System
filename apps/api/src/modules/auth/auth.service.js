@@ -123,7 +123,14 @@ async function login({ username, password, otp, ipAddress = null, userAgent = nu
   return {
     accessToken,
     refreshToken,
-    user: { id: user.id, username: user.username, fullName: user.full_name, roles },
+    user: {
+      id: user.id,
+      username: user.username,
+      fullName: user.full_name,
+      roles,
+      departmentId: user.department_id,
+      rank: user.rank,
+    },
   };
 }
 
@@ -154,7 +161,14 @@ async function refresh({ rawRefreshToken }) {
 
   return {
     accessToken,
-    user: { id: user.id, username: user.username, fullName: user.full_name, roles },
+    user: {
+      id: user.id,
+      username: user.username,
+      fullName: user.full_name,
+      roles,
+      departmentId: user.department_id,
+      rank: user.rank,
+    },
   };
 }
 
@@ -233,6 +247,13 @@ async function getMe({ userId }) {
     email: user.email,
     fullName: user.full_name,
     roles,
+    // Access tokens don't carry these (see users.service.js's own-role
+    // lookups) — /me is the one place the frontend can read them without
+    // an extra admin-only /users/:id round trip. Needed by the police-
+    // hierarchy invite form to scope its department picker to the
+    // caller's own unit.
+    departmentId: user.department_id,
+    rank: user.rank,
     mfaEnabled: user.mfa_enabled,
   };
 }

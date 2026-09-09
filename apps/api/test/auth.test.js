@@ -51,7 +51,7 @@ describe('auth module — this IS the literal "done when" scenario', () => {
       .send({
         username: `throwaway_${suffix}`,
         email: `throwaway_${suffix}@example.com`,
-        roleName: 'INVESTIGATOR',
+        roleName: 'STATE_HQ_OFFICER',
       });
     expect(inviteRes.status).toBe(200);
     expect(inviteRes.body.activationToken).toBeTruthy();
@@ -72,7 +72,7 @@ describe('auth module — this IS the literal "done when" scenario', () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.accessToken).toBeTruthy();
-    expect(res.body.user.roles).toContain('ADMINISTRATOR');
+    expect(res.body.user.roles).toContain('STATE_HQ_ADMIN');
     const cookies = [].concat(res.headers['set-cookie'] || []);
     expect(cookies.some((c) => c.startsWith('refresh_token='))).toBe(true);
   });
@@ -168,7 +168,7 @@ describe('auth module — this IS the literal "done when" scenario', () => {
       .set('Authorization', `Bearer ${adminAccessToken}`);
     expect(res.status).toBe(200);
     expect(res.body.username).toBe(process.env.BOOTSTRAP_ADMIN_USERNAME);
-    expect(res.body.roles).toContain('ADMINISTRATOR');
+    expect(res.body.roles).toContain('STATE_HQ_ADMIN');
   });
 
   it('refreshes the access token using the httpOnly cookie', async () => {

@@ -45,7 +45,7 @@ describe('users module', () => {
     const res = await request(app)
       .post('/api/v1/users/invite')
       .set('Authorization', `Bearer ${adminAccessToken}`)
-      .send({ username, email, roleName: 'INVESTIGATOR' });
+      .send({ username, email, roleName: 'STATE_HQ_OFFICER' });
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('INVITED');
@@ -53,13 +53,14 @@ describe('users module', () => {
     expect(res.body.activationUrl).toContain(res.body.activationToken);
   });
 
-  it('forbids inviting as a non-administrator', async () => {
-    // Create + activate a non-admin user first.
+  it('forbids inviting as a role with no creation authority (e.g. a fresh officer)', async () => {
+    // Create + activate a non-admin (_OFFICER) user first — createsRolesFor
+    // an _OFFICER role is always empty, so it can never invite anyone.
     const { username, email } = uniqueUser('nonadmin');
     const invite = await request(app)
       .post('/api/v1/users/invite')
       .set('Authorization', `Bearer ${adminAccessToken}`)
-      .send({ username, email, roleName: 'INVESTIGATOR' });
+      .send({ username, email, roleName: 'STATE_HQ_OFFICER' });
     const password = 'Str0ngP@ssw0rd!';
     await request(app)
       .post(`/api/v1/users/activate/${invite.body.activationToken}`)
@@ -70,7 +71,7 @@ describe('users module', () => {
     const res = await request(app)
       .post('/api/v1/users/invite')
       .set('Authorization', `Bearer ${login.body.accessToken}`)
-      .send({ ...uniqueUser('blocked'), roleName: 'INVESTIGATOR' });
+      .send({ ...uniqueUser('blocked'), roleName: 'STATE_HQ_OFFICER' });
     expect(res.status).toBe(403);
   });
 
@@ -87,7 +88,7 @@ describe('users module', () => {
       const invite = await request(app)
         .post('/api/v1/users/invite')
         .set('Authorization', `Bearer ${adminAccessToken}`)
-        .send({ username, email, roleName: 'PROSECUTOR' });
+        .send({ username, email, roleName: 'STATE_HQ_OFFICER' });
       activationToken = invite.body.activationToken;
     });
 
@@ -95,7 +96,7 @@ describe('users module', () => {
       const res = await request(app).get(`/api/v1/users/activate/${activationToken}`);
       expect(res.status).toBe(200);
       expect(res.body.email).toBe(email);
-      expect(res.body.roleName).toBe('PROSECUTOR');
+      expect(res.body.roleName).toBe('STATE_HQ_OFFICER');
     });
 
     it('rejects activation with too short a password', async () => {
@@ -113,7 +114,7 @@ describe('users module', () => {
 
       const loginRes = await request(app).post('/api/v1/auth/login').send({ username, password });
       expect(loginRes.status).toBe(200);
-      expect(loginRes.body.user.roles).toContain('PROSECUTOR');
+      expect(loginRes.body.user.roles).toContain('STATE_HQ_OFFICER');
     });
 
     it('rejects re-using the same (now-consumed) activation token', async () => {
@@ -137,7 +138,7 @@ describe('users module', () => {
     const invite = await request(app)
       .post('/api/v1/users/invite')
       .set('Authorization', `Bearer ${adminAccessToken}`)
-      .send({ username, email, roleName: 'AUDITOR' });
+      .send({ username, email, roleName: 'STATE_HQ_OFFICER' });
     await request(app)
       .post(`/api/v1/users/activate/${invite.body.activationToken}`)
       .send({ password, fullName: 'Lock Flow' });
@@ -181,7 +182,7 @@ describe('users module', () => {
     const invite = await request(app)
       .post('/api/v1/users/invite')
       .set('Authorization', `Bearer ${adminAccessToken}`)
-      .send({ username, email, roleName: 'INVESTIGATOR' });
+      .send({ username, email, roleName: 'STATE_HQ_OFFICER' });
     await request(app)
       .post(`/api/v1/users/activate/${invite.body.activationToken}`)
       .send({ password, fullName: 'Role Flow' });
@@ -189,30 +190,34 @@ describe('users module', () => {
     const { rows } = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
     const userId = rows[0].id;
 
+    // The police-hierarchy model treats a user as holding one position at
+    // a time, but PUT /:id/roles still supports replacing with any set of
+    // known role names — reassigning to a single different role here.
     const putRes = await request(app)
       .put(`/api/v1/users/${userId}/roles`)
       .set('Authorization', `Bearer ${adminAccessToken}`)
-      .send({ roleNames: ['INVESTIGATOR', 'AUDITOR'] });
+      .send({ roleNames: ['ADMINISTRATION_HQ_OFFICER'] });
     expect(putRes.status).toBe(200);
 
     const loginRes = await request(app).post('/api/v1/auth/login').send({ username, password });
     expect(loginRes.status).toBe(200);
-    expect(loginRes.body.user.roles.sort()).toEqual(['AUDITOR', 'INVESTIGATOR']);
+    expect(loginRes.body.user.roles).toEqual(['ADMINISTRATION_HQ_OFFICER']);
   });
 
   it('creates and lists departments', async () => {
-    const code = `DEPT_${Date.now()}`;
+    const name = `Test Wing ${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
     const createRes = await request(app)
       .post('/api/v1/users/departments')
       .set('Authorization', `Bearer ${adminAccessToken}`)
-      .send({ name: `Test Department ${code}`, code });
+      .send({ name, unitType: 'WING' });
     expect(createRes.status).toBe(201);
+    expect(createRes.body.unit_type).toBe('WING');
 
     const listRes = await request(app)
       .get('/api/v1/users/departments')
       .set('Authorization', `Bearer ${adminAccessToken}`);
     expect(listRes.status).toBe(200);
-    expect(listRes.body.some((d) => d.code === code)).toBe(true);
+    expect(listRes.body.some((d) => d.id === createRes.body.id)).toBe(true);
   });
 
   it('route-ordering regression: GET /users/departments is not swallowed by GET /users/:id', async () => {
